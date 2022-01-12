@@ -1,0 +1,6 @@
+[submodule "OpenCL-CLHPP"]
+	path = OpenCL-CLHPP
+	url = https://github.com/KhronosGroup/OpenCL-CLHPP
+[submodule "googletest"]
+	path = googletest
+	url = https://github.com/google/googletest
