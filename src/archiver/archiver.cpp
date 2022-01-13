@@ -187,9 +187,10 @@ calc_size_per_work_group (int total_size,
 }
 
 std::vector <int>
-AchiverGPU::calc_freq_table (const std::vector <data_t>& data,
-                             data_t min,
-                             data_t max) {
+AchiverGPU::calc_freq_table_impl (cl::Buffer& data_buf,
+                                  const std::vector <data_t>& data,
+                                  data_t min,
+                                  data_t max) {
     // Calc number alphabets in local memory
     using alphabet_t = cl_uint;                 // Counter for single symbol
     const auto alphabet_size = max - min + 1;
@@ -209,7 +210,6 @@ AchiverGPU::calc_freq_table (const std::vector <data_t>& data,
     const auto [data_size_wg, fill_size] = calc_size_per_work_group (data_size,
                                                                      work_group_size, num_cu);
     std::cout << data_size_wg << " " << fill_size << std::endl;
-    cl::Buffer data_buf;
     if (fill_size == 0) {
         // Send data to the device
         data_buf = sendBuffer (data, CL_MEM_READ_ONLY, CL_FALSE);
@@ -233,7 +233,8 @@ AchiverGPU::calc_freq_table (const std::vector <data_t>& data,
     cl::Buffer freq_tables_buf {context_, CL_MEM_READ_WRITE, alphabet_mem_size * num_cu};
     cl::LocalSpaceArg freq_tables_local_buf { .size_ = freq_tables_local_buf_size };
 
-    // Start calc freq table
+    // Calc freq tables, accumulate then in local memory and write to global space
+    // for each work group
     {
         cl::NDRange global (work_group_size * num_cu);
         cl::NDRange local (work_group_size);
@@ -244,18 +245,29 @@ AchiverGPU::calc_freq_table (const std::vector <data_t>& data,
                            data_size_wi, alphabet_size, min);
     }
 
-    cl::NDRange global (alphabet_size);
-    cl::EnqueueArgs args {cmd_queue_, global};
-    accumulate_freq_table_ (args, freq_tables_buf, alphabet_size, num_cu);
+    // Accumulate freq tables in global space and write result in first freq table
+    {
+        cl::NDRange global (alphabet_size);
+        cl::EnqueueArgs args {cmd_queue_, global};
+        accumulate_freq_table_ (args, freq_tables_buf, alphabet_size, num_cu);
+    }
 
+    // Read first freq table in global space and decrease on number of filled elements
     std::vector <int> freq_table (alphabet_size);
     cl::copy (cmd_queue_, freq_tables_buf, freq_table.begin (), freq_table.end ());
-    return freq_table;
+    freq_table[0] -= fill_size;
+    return freq_table; // todo minus fill data
 }
 
+std::vector <int>
+AchiverGPU::calc_freq_table (const std::vector <data_t>& data,
+                             data_t min,
+                             data_t max) {
+    cl::Buffer data_buf;
+    return calc_freq_table_impl (data_buf, data, min, max);
+} // AchiverGPU::calc_freq_table (const std::vector <data_t>& data, data_t min, data_t max)
 
 } // namespace archiver
-
 
 namespace std
 {

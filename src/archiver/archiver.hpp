@@ -31,11 +31,16 @@ class AchiverGPU : public cppl::ClAccelerator {
                        unsigned>
         accumulate_freq_table_;
 
-public:
-    AchiverGPU (cl::Device device);
-
     using data_t = int;
 
+    std::vector <int>
+    calc_freq_table_impl (cl::Buffer& data_buf,
+                          const std::vector <data_t>& data,
+                          data_t min,
+                          data_t max);
+
+public:
+    AchiverGPU (cl::Device device);
     
     std::vector <int>
     calc_freq_table (const std::vector <data_t>& data, data_t min = 1, data_t max = 100);
