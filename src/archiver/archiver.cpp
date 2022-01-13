@@ -141,7 +141,7 @@ void fill_codes (const std::vector <node_t>& tree,
     if (node.root) {
 
         code_t code = {
-            .len = stack.size (),
+            .len = static_cast <int> (stack.size ()),
             .bits = fill_bits (stack)
         };
         codes.push_back (code);
@@ -163,6 +163,68 @@ void fill_codes (const std::vector <node_t>& tree,
     fill_codes (tree, root.left, false, codes, vals, stack);
     fill_codes (tree, root.right, true, codes, vals, stack);
 }
+
+AchiverGPU::AchiverGPU (cl::Device device) :
+    cppl::ClAccelerator (device, "kernels/archiver.cl"),
+    calc_freq_tables_ (program_, "calc_freq_tables")
+{}
+
+std::pair <int, int>
+calc_size_per_work_group (int total_size,
+                          int num_cu) {
+    bool is_divided = total_size % num_cu == 0;
+    int size = total_size / num_cu + !is_divided;
+
+    int size_last = total_size - (num_cu - 1) * size;
+
+    return {size, size_last};
+}
+
+void
+AchiverGPU::calc_freq_table (const std::vector <data_t>& data,
+                             data_t min,
+                             data_t max) {
+    
+    // Send data to the device in advance
+    cl::Buffer data_buf = sendBuffer (data, CL_MEM_READ_ONLY, CL_FALSE);
+
+    // Calc number alphabets in local memory
+    using alphabet_t = cl_uint;                 // Counter for single symbol
+    const auto alphabet_size = max - min + 1;
+    const auto alphabet_mem_size = alphabet_size * sizeof (alphabet_t);
+
+    const auto local_mem_size = device_.getInfo <CL_DEVICE_LOCAL_MEM_SIZE> ();
+    const auto num_alphabet_in_local_mem = local_mem_size / alphabet_mem_size;
+
+    // Slice num work group if it great then max size in work group
+    const auto max_work_group_size = device_.getInfo <CL_DEVICE_MAX_WORK_GROUP_SIZE> ();
+    const auto work_group_size = std::min (num_alphabet_in_local_mem, max_work_group_size);
+    const auto freq_tables_local_buf_size = alphabet_mem_size * work_group_size;
+
+    // Calculate size of part data per work group
+    const auto num_cu = device_.getInfo <CL_DEVICE_MAX_COMPUTE_UNITS> ();
+    const auto data_size = data.size ();
+    const auto [data_size_wg, data_size_last_wg] = calc_size_per_work_group (data_size, num_cu);
+
+    // Create buffer for frequency tables for each workgroup
+    cl::Buffer freq_tables_buf {context_, CL_MEM_READ_WRITE, alphabet_mem_size * num_cu };
+    cl::LocalSpaceArg freq_tables_local_buf { .size_ = freq_tables_local_buf_size };
+
+    // Send kernel
+    if (data_size_wg == data_size_last_wg) {
+        cl::NDRange global (work_group_size * num_cu);
+        cl::NDRange local (work_group_size);
+        cl::EnqueueArgs args {cmd_queue_, global, local};
+
+        calc_freq_tables_ (args, data_buf, freq_tables_buf, freq_tables_local_buf,
+                           data_size_wg, freq_tables_local_buf_size, min);
+    } else {
+        // TODO
+        throw std::runtime_error ("todo line:" + std::to_string (__LINE__));
+    }
+
+}
+
 
 } // namespace archiver
 

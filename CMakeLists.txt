@@ -26,9 +26,11 @@ target_include_directories (ArchiverGPU PUBLIC "OpenCL-CLHPP/include")
 target_include_directories (ArchiverGPU PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries (ArchiverGPU ${OpenCL_LIBRARY})
 
-add_custom_command (TARGET ArchiverGPU POST_BUILD
-                    COMMAND ${CMAKE_COMMAND} -E copy_directory
-                    ${CMAKE_SOURCE_DIR}/src/archiver/config $<TARGET_FILE_DIR:ArchiverGPU>)
+file (COPY src/archiver/config/kernels DESTINATION .)
+
+# add_custom_command (TARGET ArchiverGPU POST_BUILD
+#                     COMMAND ${CMAKE_COMMAND} -E copy_directory
+#                     ${CMAKE_SOURCE_DIR}/src/archiver/config $<TARGET_FILE_DIR:ArchiverGPU>)
 
 #######################
 # GTest
