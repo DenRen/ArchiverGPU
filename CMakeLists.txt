@@ -4,6 +4,8 @@ project (ArchiverGPU
     LANGUAGES CXX
 )
 
+set (CMAKE_CXX_STANDARD 20)
+
 set (SRC_DIR src)
 
 #######################
@@ -17,20 +19,16 @@ link_directories (${OpenCL_LIBRARY})
 # ArchiverGPU
 #######################
 set (ARCH_DIR ${SRC_DIR}/archiver)
-add_executable (ArchiverGPU ${ARCH_DIR}/main.cpp)
-set_target_properties (ArchiverGPU
-    PROPERTIES
-        CXX_STANDARD 17
-        CXX_STANDARD_REQUIRED ON
-)
+file (GLOB ARCH_DIR_SOURCES ${ARCH_DIR}/*.cpp)
+add_executable (ArchiverGPU ${ARCH_DIR_SOURCES})
 
-target_include_directories (ArchiverGPU PUBLIC "OpenCL-CLHPP\\include")
+target_include_directories (ArchiverGPU PUBLIC "OpenCL-CLHPP/include")
 target_include_directories (ArchiverGPU PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries (ArchiverGPU ${OpenCL_LIBRARY})
 
-# add_custom_command (TARGET ArchiverGPU POST_BUILD
-#                     COMMAND ${CMAKE_COMMAND} -E copy_directory
-#                     ${CMAKE_SOURCE_DIR}/src/bin/config $<TARGET_FILE_DIR:ArchiverGPU>)
+add_custom_command (TARGET ArchiverGPU POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_directory
+                    ${CMAKE_SOURCE_DIR}/src/archiver/config $<TARGET_FILE_DIR:ArchiverGPU>)
 
 #######################
 # GTest

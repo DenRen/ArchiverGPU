@@ -1,12 +1,12 @@
 #include <iostream>
-
-#define CL_HPP_TARGET_OPENCL_VERSION 200
-#define CL_HPP_ENABLE_EXCEPTIONS
-
-#include <CL/opencl.hpp>
+#include "archiver.hpp"
 
 int main () {
-    std::cout << "Start" << std::endl;
+    archiver::ArchiverCPU arch;
 
-    cl::Device device;
+    std::vector <int> data = {
+        1,2,3,2,1,1,1,1,2,2,2,2,3,3,4, 6, 4, 90,56, 5, 6,7,
+    };
+
+    arch.archive (data);
 }
