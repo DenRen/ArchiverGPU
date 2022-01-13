@@ -50,3 +50,22 @@ calc_freq_tables (__global int* data_g,
         // TODO
     }
 }
+
+__kernel void
+accumulate_freq_table (__global int* freq_table_g,
+                       unsigned freq_table_size,
+                       unsigned number_table)
+{
+    unsigned id_g = get_global_id (0);
+
+    __global int* cur_freq_save = freq_table_g + id_g;
+    freq_table_g += id_g + freq_table_size * (number_table - 1);
+
+    int sum = 0;
+    for (int i = number_table; i != 0; --i) {
+        sum += *freq_table_g;
+        freq_table_g -= freq_table_size;
+    }
+
+    *cur_freq_save = sum;
+}

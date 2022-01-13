@@ -26,13 +26,22 @@ class AchiverGPU : public cppl::ClAccelerator {
                        unsigned>            // begin_pattern
         calc_freq_tables_;
 
+    cl::KernelFunctor <cl::Buffer,
+                       unsigned,
+                       unsigned>
+        accumulate_freq_table_;
+
 public:
     AchiverGPU (cl::Device device);
 
     using data_t = int;
 
-    void calc_freq_table (const std::vector <data_t>& data, data_t min = 1, data_t max = 100);
-    void archive (const std::vector <data_t>& data, data_t min = 1, data_t max = 100);
+    
+    std::vector <int>
+    calc_freq_table (const std::vector <data_t>& data, data_t min = 1, data_t max = 100);
+    
+    void
+    archive (const std::vector <data_t>& data, data_t min = 1, data_t max = 100);
 };
 
 } // namespace archiver

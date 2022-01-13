@@ -166,7 +166,8 @@ void fill_codes (const std::vector <node_t>& tree,
 
 AchiverGPU::AchiverGPU (cl::Device device) :
     cppl::ClAccelerator (device, "kernels/archiver.cl"),
-    calc_freq_tables_ (program_, "calc_freq_tables")
+    calc_freq_tables_ (program_, "calc_freq_tables"),
+    accumulate_freq_table_ (program_, "accumulate_freq_table")
 {}
 
 std::pair <int, int>
@@ -185,7 +186,7 @@ calc_size_per_work_group (int total_size,
     return {size_per_work_item * work_group_size, fill_size};
 }
 
-void
+std::vector <int>
 AchiverGPU::calc_freq_table (const std::vector <data_t>& data,
                              data_t min,
                              data_t max) {
@@ -233,17 +234,23 @@ AchiverGPU::calc_freq_table (const std::vector <data_t>& data,
     cl::LocalSpaceArg freq_tables_local_buf { .size_ = freq_tables_local_buf_size };
 
     // Start calc freq table
-    cl::NDRange global (work_group_size * num_cu);
-    cl::NDRange local (work_group_size);
-    cl::EnqueueArgs args {cmd_queue_, global, local};
-    
-    const auto data_size_wi = data_size_wg / work_group_size;
-    calc_freq_tables_ (args, data_buf, freq_tables_buf, freq_tables_local_buf,
-                       data_size_wi, alphabet_size, min);
+    {
+        cl::NDRange global (work_group_size * num_cu);
+        cl::NDRange local (work_group_size);
+        cl::EnqueueArgs args {cmd_queue_, global, local};
 
-    std::vector <int> freq_table (alphabet_size * num_cu);
+        const auto data_size_wi = data_size_wg / work_group_size;
+        calc_freq_tables_ (args, data_buf, freq_tables_buf, freq_tables_local_buf,
+                           data_size_wi, alphabet_size, min);
+    }
+
+    cl::NDRange global (alphabet_size);
+    cl::EnqueueArgs args {cmd_queue_, global};
+    accumulate_freq_table_ (args, freq_tables_buf, alphabet_size, num_cu);
+
+    std::vector <int> freq_table (alphabet_size);
     cl::copy (cmd_queue_, freq_tables_buf, freq_table.begin (), freq_table.end ());
-    std::cout << "freq_table: " << freq_table << std::endl;
+    return freq_table;
 }
 
 

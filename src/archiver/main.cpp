@@ -1,5 +1,6 @@
 #include <iostream>
 #include "archiver.hpp"
+#include "print_lib.hpp"
 
 int main () {
     archiver::ArchiverCPU arch;
@@ -11,7 +12,7 @@ int main () {
         cl::Device device = deviceProvider.getDefaultDevice ();
         archiver::AchiverGPU archGpu {device};
 
-        archGpu.calc_freq_table (data, 1, 100);
+        std::cout << archGpu.calc_freq_table (data, 1, 100) << std::endl;
     } catch (cl::Error& exc) {
         cppl::printError (exc);
     } catch (std::exception& exc) {
