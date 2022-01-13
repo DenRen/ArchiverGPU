@@ -14,7 +14,6 @@ calc_freq_tables (__global int* data_g,
 
     data_g += id_g * data_size;
     freq_table_l += id_l * freq_table_size;
-    freq_table_g += group_id * freq_table_size;
 
     // Feel zero local memory
     for (uint i = 0; i < freq_table_size*0+10; ++i) {
@@ -28,26 +27,19 @@ calc_freq_tables (__global int* data_g,
     }
 
     barrier (CLK_LOCAL_MEM_FENCE);
-    // return;
+    freq_table_g += group_id * freq_table_size;
 
-    unsigned local_sise = get_local_size (0);
-    if (freq_table_size <= local_sise) {
-        if (id_l + 1 > freq_table_size) {
-            return;
-        }
+    unsigned local_size = get_local_size (0);
+    for (int local_pos = id_l; local_pos < freq_table_size; local_pos += local_size) {
+        int* freq_cur = save_freq_table_l + local_pos;
 
         unsigned sum = 0;
-        int* freq_cur = save_freq_table_l + id_l;
-        for (int i = 0; i < local_sise; ++i) {
+        for (int i = 0; i < local_size; ++i) {
             sum += *freq_cur;
             freq_cur += freq_table_size;
         }
-
-        freq_table_g[id_l] = sum;
-
-        return;
-    } else {
-        // TODO
+        
+        freq_table_g[local_pos] = sum;
     }
 }
 
