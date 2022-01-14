@@ -224,7 +224,6 @@ std::tuple <std::vector <uint64_t>, unsigned>
 ArchiverCPU::archive_impl (const std::vector <data_t>& data,
                            const std::vector <code_t>& codes_table,
                            data_t min) {
-                               PRINT (data.size ());
     const std::size_t max_size_coded = data.size () * sizeof (data_t) / sizeof (uint64_t) +
                                                      (sizeof (data_t) % sizeof (uint64_t) != 0);
     std::vector <uint64_t> coded (max_size_coded);
@@ -233,7 +232,10 @@ ArchiverCPU::archive_impl (const std::vector <data_t>& data,
     for (const data_t& value : data) {
         code_t code = codes_table[value - min];
         uint64_t code_val = code.bits;
-        coded[pos / 64] |= code_val << (pos % 64);
+
+        uint64_t* cur = (uint64_t*) (((uint8_t*) coded.data ()) + pos / 8);
+        *cur |= code_val << (pos % 8);
+        
         pos += code.len;
     }
 
@@ -257,15 +259,40 @@ ArchiverCPU::archive (const std::vector <data_t>& data,
     return {archived_data, num_bits, haff_tree};
 }
 
+int
+get_bit (const std::vector <uint64_t>& vec,
+         unsigned pos) {
+    return (vec[pos / 64] & (1ull << (pos % 64))) != 0;
+}
+
 std::vector <data_t>
-ArchiverCPU::dearchive (const std::vector <uint64_t>& data,
+ArchiverCPU::dearchive (const std::vector <uint64_t>& archived_data,
                         unsigned num_bits,
                         const std::vector <node_t>& haff_tree,
                         data_t min) {
-    // std::vector <data_t> data;
+    std::vector <data_t> data;
 
+    unsigned pos = 0;
+    auto next_bit = [&archived_data, &pos] () {
+        return archiver::get_bit (archived_data, pos++);
+    };
 
-    return {};
+    const auto root = haff_tree.size () - 1;
+    PRINT (num_bits);
+    while (pos < num_bits) {
+        auto node_pos = root;
+        while (!haff_tree[node_pos].leaf) {
+            auto& node = haff_tree[node_pos];
+            
+            node_pos = next_bit () ? node.right : node.left;
+            if (node_pos == -1) {
+                throw std::runtime_error ("Failed to encode data");
+            }
+        }
+        data.push_back (haff_tree[node_pos].value + min);
+    }
+
+    return data;
 }
 
 // ==========\\

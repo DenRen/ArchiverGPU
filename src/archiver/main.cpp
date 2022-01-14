@@ -2,13 +2,6 @@
 #include "archiver.hpp"
 #include "print_lib.hpp"
 
-bool
-get_bit (const std::vector <uint64_t>& vec,
-         unsigned pos) {
-    uint8_t* data = (uint8_t*) vec.data ();
-    return ((*(data + pos / 8)) & (1ull << (7 - pos % 8))) != 0;
-}
-
 int
 get_bit (uint64_t value,
          unsigned pos) {
@@ -22,6 +15,7 @@ print_uint64 (uint64_t value, std::ostream& os = std::cout) {
         for (int j = 0; j < 8; ++j) {
             os << get_bit (value, (i + 8) - (j + 1));
         }
+
         if ((i + 8) == 32) {
             os << "  ";
         } else {
@@ -78,9 +72,21 @@ int main () {
         // cl::Device device = deviceProvider.getDefaultDevice ();
         // archiver::AchiverGPU archGpu {device};
 
-        auto [archived_data, num_bits, haff_tree] = arch.archive (data, 1, 15);
+        const int min = 1, max = 15;
+
+        auto [archived_data, num_bits, haff_tree] = arch.archive (data, min, max);
         print_bits (archived_data);
 
+        std::vector <int> data_decoded = arch.dearchive (archived_data, num_bits, haff_tree, min);
+        
+        for (int i = 0; i < data.size (); i += data.size () / 6) {
+            for (int j = i; j < i + data.size () / 6; ++j) {
+                std::cout << data_decoded[j] << " ";
+            }
+
+            std::cout << std::endl;
+        }
+        // std::cout << std::endl << "Result: " << (data_decoded) << std::endl;
 
     } catch (cl::Error& exc) {
         cppl::printError (exc);
