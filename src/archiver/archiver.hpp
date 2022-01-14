@@ -1,29 +1,47 @@
 #pragma once
 
+#include <tuple>
 #include "cppl.hpp"
 
 namespace archiver
 {
 
-// struct
+using data_t = int;
+
+struct code_t {
+    int len;        // In bits
+    uint32_t bits;
+};
+
+struct node_t {
+    bool leaf;
+    int left, right;
+    int value;
+};
 
 class ArchiverCPU {
-    using data_t = int;
-
     std::vector <int>
     calc_freq_table_impl (const std::vector <data_t>& data,
                           data_t min,
                           data_t max);
 
+    std::tuple <std::vector <uint64_t>, unsigned>
+    archive_impl (const std::vector <data_t>& data,
+                  const std::vector <code_t>& codes_table,
+                  data_t min);
+
 public:
-    void archive (const std::vector <data_t>& data,
+    std::tuple <std::vector <uint64_t>, unsigned, std::vector <node_t>>
+    archive (const std::vector <data_t>& data,
                   data_t min = 1,
                   data_t max = 100);
-};
 
-struct code_t {
-    int len;        // In bits
-    uint32_t bits;
+
+    std::vector <data_t>
+    dearchive (const std::vector <uint64_t>& data,
+               unsigned num_bits,
+               const std::vector <node_t>& haff_tree,
+               data_t min);
 };
 
 class AchiverGPU : public cppl::ClAccelerator {
@@ -44,8 +62,6 @@ class AchiverGPU : public cppl::ClAccelerator {
                        unsigned,
                        unsigned>
         accumulate_freq_table_;
-
-    using data_t = int;
 
     std::vector <int>
     calc_freq_table_impl (cl::Buffer& data_buf,
@@ -68,3 +84,11 @@ public:
 };
 
 } // namespace archiver
+
+namespace std
+{
+
+ostream&
+operator << (ostream& os, const archiver::code_t& code);
+
+}

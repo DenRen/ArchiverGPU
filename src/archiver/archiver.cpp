@@ -14,12 +14,6 @@ namespace archiver
 // Static function for archiver -----------------------------------------------
 // ============================//
 
-struct node_t {
-    bool leaf;
-    int left, right;
-    int value;
-};
-
 struct freq_t {
     int pos = -1;
     int freq = -1;
@@ -226,14 +220,58 @@ ArchiverCPU::calc_freq_table_impl (const std::vector <data_t>& data,
     return freq_table;
 }
 
-void
-ArchiverCPU::archive (const std::vector <data_t>& data, data_t min, data_t max) {
+std::tuple <std::vector <uint64_t>, unsigned>
+ArchiverCPU::archive_impl (const std::vector <data_t>& data,
+                           const std::vector <code_t>& codes_table,
+                           data_t min) {
+    const auto max_size_res = data.size () * sizeof (data_t) / sizeof (uint64_t) + 1;
+    std::vector <uint64_t> result (max_size_res);
+
+    uint64_t* begin = (uint64_t*) result.data ();
+    std::size_t pos = 0;
+
+    std::cout << std::endl;
+    PRINT (data);
+    for (data_t cur_data : data) {
+        code_t code = codes_table[cur_data - min];
+        PRINT (code);
+
+        uint64_t* cur_begin = (uint64_t*) (begin + (pos + 1) / 64);
+        uint64_t code_val = code.bits;
+        code_val <<= (64 - pos % 64 - code.len);
+        PRINT (code_val);
+
+        *cur_begin |= code_val;
+        PRINT (*cur_begin);
+        pos += code.len;
+        PRINT (pos);
+    }
+
+    return {result, pos + 1};
+}
+
+std::tuple <std::vector <uint64_t>, unsigned , std::vector <node_t>>
+ArchiverCPU::archive (const std::vector <data_t>& data,
+                      data_t min,
+                      data_t max) {
     const auto alphabet_size = max - min + 1;
     std::vector <int> freq_table = calc_freq_table_impl (data, min, max);
-    std::vector <node_t> freq_tree = calc_haff_tree (freq_table);
-    std::vector <code_t> codes_table = calc_codes_table (freq_tree, alphabet_size);
+    std::vector <node_t> haff_tree = calc_haff_tree (freq_table);
+    std::vector <code_t> codes_table = calc_codes_table (haff_tree, alphabet_size);
 
+    const auto [archived_data, num_bits] = archive_impl (data, codes_table, min);
 
+    return {archived_data, num_bits, haff_tree};
+}
+
+std::vector <data_t>
+ArchiverCPU::dearchive (const std::vector <uint64_t>& data,
+                        unsigned num_bits,
+                        const std::vector <node_t>& haff_tree,
+                        data_t min) {
+    
+
+    return {};
 }
 
 // ==========\\
@@ -358,11 +396,19 @@ AchiverGPU::archive (const std::vector <data_t>& data,
     std::vector <code_t> codes_table = calc_codes_table (freq_tree, alphabet_size);
 }
 
-
 } // namespace archiver
 
 namespace std
 {
+
+ostream&
+operator << (ostream& os, const archiver::code_t& code) {
+    for (std::size_t j = 0; j < code.len; ++j) {
+        os << (int) ((code.bits & (1ull << (code.len - j - 1))) != 0);
+    }
+
+    return os;
+}
 
 ostream&
 operator << (ostream& os, const archiver::freq_t& freq) {
@@ -373,17 +419,6 @@ ostream&
 operator << (ostream& os, const archiver::node_t& n) {
     return os << "{" << std::boolalpha << n.leaf << ", left: " << n.left
               << ", right: " << n.right << ", value: " << n.value << "}" << std::endl;
-}
-
-ostream&
-operator << (ostream& os, const archiver::code_t& code) {
-    auto copy_code = code;
-    for (std::size_t j = 0; j < copy_code.len; ++j) {
-        os << (1ull & copy_code.bits);
-        copy_code.bits >>= 1;
-    }
-
-    return os;
 }
 
 }
