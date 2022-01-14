@@ -9,25 +9,21 @@ namespace archiver
 {
 
 struct node_t {
-    bool root;
+    bool leaf;
     int left, right;
     int value;
 };
 
 struct freq_t {
-    int val = -1;
+    int pos = -1;
     int freq = -1;
 
-    freq_t (int val, int freq) :
-        val (val),
+    freq_t (int pos, int freq) :
+        pos (pos),
         freq (freq)
     {}
-
-/*
-    operator std::pair <int, int> () {
-        return {val, freq};
-    }*/
 };
+
 void sort (std::vector <freq_t>& vec) {
     std::sort (vec.begin (), vec.end (),
         [] (const auto& lhs, const auto& rhs) {
@@ -59,19 +55,20 @@ ArchiverCPU::archive (const std::vector <int>& data) {
     }
     std::cout << freq_vec << std::endl << std::endl;
 
-    // Build tree
+    // Fill leafs in tree
     std::vector <node_t> tree;
     tree.reserve (freq_vec.size ());
     for (auto& freq : freq_vec) {
         node_t node = {
-            .root = true,
+            .leaf = true,
             .left = -1, .right = -1,
-            .value = freq.val
+            .value = freq.pos
         };
-        freq.val = tree.size (); // Change value to position
+        freq.pos = tree.size (); // Change value to position
         tree.push_back (node);
     }
 
+    // Build Haffman-tree
     while (freq_vec.size () > 1) {
         sort (freq_vec);
         std::cout << "freq vec: " << freq_vec << std::endl;
@@ -83,9 +80,9 @@ ArchiverCPU::archive (const std::vector <int>& data) {
         freq_vec.pop_back ();
 
         node_t node = {
-            .root = false,
-            .left = min1.val,
-            .right = min2.val,
+            .leaf = false,
+            .left = min1.pos,
+            .right = min2.pos,
             .value = -1
         };
 
@@ -93,8 +90,6 @@ ArchiverCPU::archive (const std::vector <int>& data) {
 
         freq_t freq (tree.size () - 1, min1.freq + min2.freq);
         freq_vec.push_back (freq);
-
-        sort (freq_vec);
     }
     std::cout << tree << std::endl;
 
@@ -138,7 +133,7 @@ void fill_codes (const std::vector <node_t>& tree,
     stack.push_back (is_right);
 
     const node_t& node = tree[pos];
-    if (node.root) {
+    if (node.leaf) {
 
         code_t code = {
             .len = static_cast <int> (stack.size ()),
@@ -210,14 +205,16 @@ AchiverGPU::calc_freq_table_impl (cl::Buffer& data_buf,
     const auto [data_size_wg, fill_size] = calc_size_per_work_group (data_size,
                                                                      work_group_size, num_cu);
     std::cout << data_size_wg << " " << fill_size << std::endl;
+
+    // Send data buffer and filling data if necessary
+    std::vector feeling_data (fill_size, min);
     if (fill_size == 0) {
         // Send data to the device
         data_buf = sendBuffer (data, CL_MEM_READ_ONLY, CL_FALSE);
     } else {
-        std::vector feeling_data (fill_size, min);
-
         const auto data_mem_size = data_size * sizeof (data[0]);
-        data_buf = cl::Buffer (context_, CL_MEM_READ_ONLY, data_mem_size + fill_size);
+        const auto fill_mem_size = fill_size * sizeof (feeling_data[0]);
+        data_buf = cl::Buffer (context_, CL_MEM_READ_ONLY, data_mem_size + fill_mem_size);
 
         // Send data
         cmd_queue_.enqueueWriteBuffer (data_buf, CL_FALSE,
@@ -225,11 +222,11 @@ AchiverGPU::calc_freq_table_impl (cl::Buffer& data_buf,
                                        nullptr, nullptr);
         // Send fill data
         cmd_queue_.enqueueWriteBuffer (data_buf, CL_FALSE,
-                                       data_mem_size, fill_size, feeling_data.data (),
+                                       data_mem_size, fill_mem_size, feeling_data.data (),
                                        nullptr, nullptr);
     }
 
-    // Create buffer for frequency tables for each workgroup
+    // Create buffer for frequency tables for each work group
     cl::Buffer freq_tables_buf {context_, CL_MEM_READ_WRITE, alphabet_mem_size * num_cu};
     cl::LocalSpaceArg freq_tables_local_buf { .size_ = freq_tables_local_buf_size };
 
@@ -257,7 +254,8 @@ AchiverGPU::calc_freq_table_impl (cl::Buffer& data_buf,
     cl::copy (cmd_queue_, freq_tables_buf, freq_table.begin (), freq_table.end ());
     freq_table[0] -= fill_size;
     return freq_table; // todo minus fill data
-}
+} // AchiverGPU::calc_freq_table_impl (cl::Buffer& data_buf, const std::vector <data_t>& data,
+  //                                   data_t min, data_t max)
 
 std::vector <int>
 AchiverGPU::calc_freq_table (const std::vector <data_t>& data,
@@ -267,6 +265,77 @@ AchiverGPU::calc_freq_table (const std::vector <data_t>& data,
     return calc_freq_table_impl (data_buf, data, min, max);
 } // AchiverGPU::calc_freq_table (const std::vector <data_t>& data, data_t min, data_t max)
 
+std::vector <node_t>
+calc_haff_tree (const std::vector <int>& freq_table) {
+    std::vector <freq_t> freq_vec;
+    freq_vec.reserve (freq_table.size ());
+
+    // Fill leafs in tree
+    std::vector <node_t> tree;
+    tree.reserve (freq_table.size ());
+    for (int i = 0; i < freq_table.size (); ++i) {
+        if (freq_table[i] == 0) {
+            continue;
+        }
+
+        node_t node = {
+            .leaf = true,
+            .left = -1, .right = -1,
+            .value = i
+        };
+        tree.push_back (node);
+
+        // Push position and frequency in freq_vec
+        freq_t freq_item {(int) tree.size (), freq_table[i]};
+        freq_vec.push_back (freq_item);
+    }
+
+    // Build Haffman-tree
+    while (freq_vec.size () > 1) {
+        sort (freq_vec);
+        std::cout << "freq vec: " << freq_vec << std::endl;
+
+        const auto end = freq_vec.end ();
+        auto min1 = *(end - 1);
+        auto min2 = *(end - 2);
+        freq_vec.pop_back ();
+        freq_vec.pop_back ();
+
+        node_t node = {
+            .leaf = false,
+            .left = min1.pos,
+            .right = min2.pos,
+            .value = -1
+        };
+
+        tree.push_back (node);
+
+        freq_t freq (tree.size () - 1, min1.freq + min2.freq);
+        freq_vec.push_back (freq);
+    }
+    std::cout << tree << std::endl;
+
+    return tree;
+}
+
+std::vector <unsigned>
+calc_codes_table (const std::vector <node_t>& freq_tree) {
+    return {};
+}
+
+void
+AchiverGPU::archive (const std::vector <data_t>& data,
+                     data_t min,
+                     data_t max) {
+
+    cl::Buffer data_buf;
+    std::vector <int> freq_table = calc_freq_table_impl (data_buf, data, min, max);
+    std::vector <node_t> freq_tree = calc_haff_tree (freq_table);
+    // std::vector <unsigned> codes_table = calc_codes_table (freq_tree);
+    // ...
+}
+
+
 } // namespace archiver
 
 namespace std
@@ -274,12 +343,12 @@ namespace std
 
 ostream&
 operator << (std::ostream& os, const archiver::freq_t& freq) {
-    return os << "{" << freq.val << "->" << freq.freq << "}";
+    return os << "{" << freq.pos << "->" << freq.freq << "}";
 }
 
 ostream&
 operator << (std::ostream& os, const archiver::node_t& n) {
-    return os << "{" << std::boolalpha << n.root << ", left: " << n.left
+    return os << "{" << std::boolalpha << n.leaf << ", left: " << n.left
               << ", right: " << n.right << ", value: " << n.value << "}" << std::endl;
 }
 }

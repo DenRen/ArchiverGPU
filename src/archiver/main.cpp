@@ -5,7 +5,10 @@
 int main () {
     archiver::ArchiverCPU arch;
 
-    std::vector <int> data (122*5*200, 2);
+    std::vector <int> data (122*5*200 + 170, 2);
+    for (int i = 0; i < 170; ++i) {
+        data.push_back (98);
+    }
 
     try {
         cppl::DeviceProvider deviceProvider;
