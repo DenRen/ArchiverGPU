@@ -61,3 +61,30 @@ accumulate_freq_table (__global int* freq_table_g,
 
     *cur_freq_save = sum;
 }
+
+struct code_t {
+    int len;
+    uint bits;
+};
+
+__kernel void
+archive (__global int* data_g,
+         __global struct code_t* codes_buf_g,
+         __local  struct code_t* codes_buf_l,
+         __local int* buf_l,
+         unsigned data_size,
+         unsigned codes_buf_size,
+         unsigned size_buf_l)
+{
+    unsigned id_l = get_local_id (0);
+
+    // Copy codes table to local memory
+    if (id_l == 0) {
+        for (uint i = 0; i < codes_buf_size; ++i) {
+            codes_buf_l[i] = codes_buf_g[i];
+        }
+    }
+    barrier (CLK_LOCAL_MEM_FENCE);
+
+    
+}

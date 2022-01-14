@@ -5,8 +5,14 @@
 #include "archiver.hpp"
 #include "print_lib.hpp"
 
+#define PRINT(obj) std::cout << #obj ": " << obj << std::endl
+
 namespace archiver
 {
+
+// ============================\\
+// Static function for archiver -----------------------------------------------
+// ============================//
 
 struct node_t {
     bool leaf;
@@ -24,93 +30,8 @@ struct freq_t {
     {}
 };
 
-void sort (std::vector <freq_t>& vec) {
-    std::sort (vec.begin (), vec.end (),
-        [] (const auto& lhs, const auto& rhs) {
-            return lhs.freq > rhs.freq;
-        });
-}
-
-struct code_t {
-    int len; // In bits
-    uint32_t bits;
-};
-
-void fill_codes (const std::vector <node_t>& tree,
-                 std::vector <code_t>& codes,
-                 std::vector <int>& vals);
-
-void
-ArchiverCPU::archive (const std::vector <int>& data) {
-    // Fill frequency values
-    std::map <int, int> freq_map;
-    for (const auto& value : data) {
-        ++freq_map[value];
-    }
-
-    // Create sorted sequence
-    std::vector <freq_t> freq_vec;
-    for (const auto& pair : freq_map) {
-        freq_vec.emplace_back (pair.first, pair.second);
-    }
-    std::cout << freq_vec << std::endl << std::endl;
-
-    // Fill leafs in tree
-    std::vector <node_t> tree;
-    tree.reserve (freq_vec.size ());
-    for (auto& freq : freq_vec) {
-        node_t node = {
-            .leaf = true,
-            .left = -1, .right = -1,
-            .value = freq.pos
-        };
-        freq.pos = tree.size (); // Change value to position
-        tree.push_back (node);
-    }
-
-    // Build Haffman-tree
-    while (freq_vec.size () > 1) {
-        sort (freq_vec);
-        std::cout << "freq vec: " << freq_vec << std::endl;
-
-        const auto end = freq_vec.end ();
-        auto min1 = *(end - 1);
-        auto min2 = *(end - 2);
-        freq_vec.pop_back ();
-        freq_vec.pop_back ();
-
-        node_t node = {
-            .leaf = false,
-            .left = min1.pos,
-            .right = min2.pos,
-            .value = -1
-        };
-
-        tree.push_back (node);
-
-        freq_t freq (tree.size () - 1, min1.freq + min2.freq);
-        freq_vec.push_back (freq);
-    }
-    std::cout << tree << std::endl;
-
-    // Generte code
-    std::vector <code_t> codes;
-    std::vector <int> vals;
-    fill_codes (tree, codes, vals);
-
-    for (std::size_t i = 0; i < codes.size (); ++i) {
-        std::cout << "value " << vals[i] << ": ";
-
-        code_t code = codes[i];
-        for (std::size_t j = 0; j < code.len; ++j) {
-            std::cout << (1ull & code.bits);
-            code.bits >>= 1;
-        }
-        std::cout << std::endl;
-    }
-}
-
-std::uint32_t fill_bits (const std::vector <bool>& stack) {
+static std::uint32_t
+fill_bits (const std::vector <bool>& stack) {
     std::size_t res = 0;
     if (stack.size () > 8 * sizeof (res)) {
         throw std::invalid_argument ("stack.size () > 8 * sizeof (res)");
@@ -125,11 +46,12 @@ std::uint32_t fill_bits (const std::vector <bool>& stack) {
     return res;
 }
 
-void fill_codes (const std::vector <node_t>& tree,
-                 std::size_t pos, bool is_right,
-                 std::vector <code_t>& codes,
-                 std::vector <int>& vals,
-                 std::vector <bool>& stack) {
+static void
+fill_codes (const std::vector <node_t>& tree,
+            std::size_t pos, bool is_right,
+            std::vector <code_t>& codes,
+            std::vector <int>& vals,
+            std::vector <bool>& stack) {
     stack.push_back (is_right);
 
     const node_t& node = tree[pos];
@@ -149,9 +71,10 @@ void fill_codes (const std::vector <node_t>& tree,
     stack.pop_back ();
 }
 
-void fill_codes (const std::vector <node_t>& tree,
-                 std::vector <code_t>& codes,
-                 std::vector <int>& vals) {
+static void
+fill_codes (const std::vector <node_t>& tree,
+            std::vector <code_t>& codes,
+            std::vector <int>& vals) {
     node_t root = tree[tree.size () - 1];
     std::vector <bool> stack;
 
@@ -159,13 +82,171 @@ void fill_codes (const std::vector <node_t>& tree,
     fill_codes (tree, root.right, true, codes, vals, stack);
 }
 
+static void
+sort (std::vector <freq_t>& vec) {
+    std::sort (vec.begin (), vec.end (),
+        [] (const auto& lhs, const auto& rhs) {
+            return lhs.freq > rhs.freq;
+        });
+}
+
+// TODO: optimize
+static std::vector <node_t>
+calc_haff_tree (const std::vector <int>& freq_table) {
+    PRINT (freq_table);
+
+    std::vector <freq_t> freq_vec;
+    freq_vec.reserve (freq_table.size ());
+
+    // Fill leafs in tree
+    std::vector <node_t> tree;
+    tree.reserve (freq_table.size ());
+    for (int i = 0; i < freq_table.size (); ++i) {
+        if (freq_table[i] == 0) {
+            continue;
+        }
+
+        node_t node = {
+            .leaf = true,
+            .left = -1, .right = -1,
+            .value = i
+        };
+        tree.push_back (node);
+
+        // Push position and frequency in freq_vec
+        freq_t freq_item {(int) tree.size () - 1, freq_table[i]};
+        freq_vec.push_back (freq_item);
+    }
+
+    // Build Haffman-tree
+    while (freq_vec.size () > 1) {
+        sort (freq_vec);
+        PRINT (freq_vec);
+
+        const auto end = freq_vec.end ();
+        auto min1 = *(end - 1);
+        auto min2 = *(end - 2);
+        freq_vec.pop_back ();
+        freq_vec.pop_back ();
+
+        node_t node = {
+            .leaf = false,
+            .left = min1.pos,
+            .right = min2.pos,
+            .value = -1
+        };
+
+        tree.push_back (node);
+
+        freq_t freq (tree.size () - 1, min1.freq + min2.freq);
+        freq_vec.push_back (freq);
+    }
+    PRINT (tree);
+
+    return tree;
+}
+
+static void
+fill_codes (const std::vector <node_t>& tree,
+            std::size_t pos, bool is_right,
+            std::vector <std::pair <int, code_t>>& codes,
+            std::vector <bool>& stack) {
+    stack.push_back (is_right);
+
+    const node_t& node = tree[pos];
+    if (node.leaf) {
+
+        code_t code = {
+            .len = static_cast <int> (stack.size ()),
+            .bits = fill_bits (stack)
+        };
+        codes.emplace_back (node.value, code);
+    } else {
+        fill_codes (tree, node.left, false, codes, stack);
+        fill_codes (tree, node.right, true, codes, stack);
+    }
+
+    stack.pop_back ();
+}
+
+static void
+fill_codes (const std::vector <node_t>& tree,
+            std::vector <std::pair <int, code_t>>& codes) {
+    node_t root = tree[tree.size () - 1];
+    std::vector <bool> stack;
+
+    fill_codes (tree, root.left, false, codes, stack);
+    fill_codes (tree, root.right, true, codes, stack);
+}
+
+std::vector <code_t>
+calc_codes_table (const std::vector <node_t>& freq_tree,
+                  int alphabet_size) {
+    std::vector <std::pair <int, code_t>> codes;
+    fill_codes (freq_tree, codes);
+
+    PRINT (codes);
+    // Sort by value
+    std::sort (codes.begin (), codes.end (),
+        [] (const auto& lhs, const auto& rhs) {
+            return lhs.first < rhs.first;
+        });
+
+    PRINT (codes);
+
+    // Create full table
+    std::vector <code_t> codes_table (alphabet_size, code_t {0});
+    for (const auto& [pos, code] : codes) {
+        codes_table[pos] = code;
+    }
+
+    PRINT (codes_table);
+    return codes_table;
+}
+
+// ==========\\
+// AchiverCPU -----------------------------------------------------------------
+// ==========//
+
+std::vector <int>
+ArchiverCPU::calc_freq_table_impl (const std::vector <data_t>& data,
+                                   data_t min,
+                                   data_t max) {
+    std::map <data_t, int> freq_map;
+    for (const auto& value : data) {
+        ++freq_map[value];
+    }
+
+    const auto alphabet_size = max - min + 1;
+    std::vector <int> freq_table (alphabet_size);
+    for (const auto& [value, freq] : freq_map) {
+        freq_table[value - min] = freq;
+    }
+
+    return freq_table;
+}
+
+void
+ArchiverCPU::archive (const std::vector <data_t>& data, data_t min, data_t max) {
+    const auto alphabet_size = max - min + 1;
+    std::vector <int> freq_table = calc_freq_table_impl (data, min, max);
+    std::vector <node_t> freq_tree = calc_haff_tree (freq_table);
+    std::vector <code_t> codes_table = calc_codes_table (freq_tree, alphabet_size);
+
+
+}
+
+// ==========\\
+// AchiverGPU -----------------------------------------------------------------
+// ==========//
+
 AchiverGPU::AchiverGPU (cl::Device device) :
     cppl::ClAccelerator (device, "kernels/archiver.cl"),
     calc_freq_tables_ (program_, "calc_freq_tables"),
     accumulate_freq_table_ (program_, "accumulate_freq_table")
 {}
 
-std::pair <int, int>
+static std::pair <int, int>
 calc_size_per_work_group (int total_size,
                           int work_group_size,
                           int num_cu) {
@@ -180,8 +261,6 @@ calc_size_per_work_group (int total_size,
     int fill_size = size_per_work_item * num_work_item - total_size;
     return {size_per_work_item * work_group_size, fill_size};
 }
-
-#define PRINT(obj) std::cout << #obj ": " << obj << std::endl
 
 std::vector <int>
 AchiverGPU::calc_freq_table_impl (cl::Buffer& data_buf,
@@ -268,118 +347,6 @@ AchiverGPU::calc_freq_table (const std::vector <data_t>& data,
     return calc_freq_table_impl (data_buf, data, min, max);
 } // AchiverGPU::calc_freq_table (const std::vector <data_t>& data, data_t min, data_t max)
 
-// TODO: optimize
-std::vector <node_t>
-calc_haff_tree (const std::vector <int>& freq_table) {
-    PRINT (freq_table);
-
-    std::vector <freq_t> freq_vec;
-    freq_vec.reserve (freq_table.size ());
-
-    // Fill leafs in tree
-    std::vector <node_t> tree;
-    tree.reserve (freq_table.size ());
-    for (int i = 0; i < freq_table.size (); ++i) {
-        if (freq_table[i] == 0) {
-            continue;
-        }
-
-        node_t node = {
-            .leaf = true,
-            .left = -1, .right = -1,
-            .value = i
-        };
-        tree.push_back (node);
-
-        // Push position and frequency in freq_vec
-        freq_t freq_item {(int) tree.size () - 1, freq_table[i]};
-        freq_vec.push_back (freq_item);
-    }
-
-    // Build Haffman-tree
-    while (freq_vec.size () > 1) {
-        sort (freq_vec);
-        PRINT (freq_vec);
-
-        const auto end = freq_vec.end ();
-        auto min1 = *(end - 1);
-        auto min2 = *(end - 2);
-        freq_vec.pop_back ();
-        freq_vec.pop_back ();
-
-        node_t node = {
-            .leaf = false,
-            .left = min1.pos,
-            .right = min2.pos,
-            .value = -1
-        };
-
-        tree.push_back (node);
-
-        freq_t freq (tree.size () - 1, min1.freq + min2.freq);
-        freq_vec.push_back (freq);
-    }
-    PRINT (tree);
-
-    return tree;
-}
-
-void fill_codes (const std::vector <node_t>& tree,
-                 std::size_t pos, bool is_right,
-                 std::vector <std::pair <int, code_t>>& codes,
-                 std::vector <bool>& stack) {
-    stack.push_back (is_right);
-
-    const node_t& node = tree[pos];
-    if (node.leaf) {
-
-        code_t code = {
-            .len = static_cast <int> (stack.size ()),
-            .bits = fill_bits (stack)
-        };
-        codes.emplace_back (node.value, code);
-    } else {
-        fill_codes (tree, node.left, false, codes, stack);
-        fill_codes (tree, node.right, true, codes, stack);
-    }
-
-    stack.pop_back ();
-}
-
-void fill_codes (const std::vector <node_t>& tree,
-                 std::vector <std::pair <int, code_t>>& codes) {
-    node_t root = tree[tree.size () - 1];
-    std::vector <bool> stack;
-
-    fill_codes (tree, root.left, false, codes, stack);
-    fill_codes (tree, root.right, true, codes, stack);
-}
-
-std::vector <code_t>
-calc_codes_table (const std::vector <node_t>& freq_tree,
-                  int alphabet_size) {
-    std::vector <std::pair <int, code_t>> codes;
-    fill_codes (freq_tree, codes);
-
-    PRINT (codes);
-    // Sort by value
-    std::sort (codes.begin (), codes.end (),
-        [] (const auto& lhs, const auto& rhs) {
-            return lhs.first < rhs.first;
-        });
-
-    PRINT (codes);
-
-    // Create full table
-    std::vector <code_t> code_table (alphabet_size, code_t {0});
-    for (const auto& [pos, code] : codes) {
-        code_table[pos] = code;
-    }
-
-    PRINT (code_table);
-    return code_table;
-}
-
 void
 AchiverGPU::archive (const std::vector <data_t>& data,
                      data_t min,
@@ -389,7 +356,6 @@ AchiverGPU::archive (const std::vector <data_t>& data,
     std::vector <int> freq_table = calc_freq_table_impl (data_buf, data, min, max);
     std::vector <node_t> freq_tree = calc_haff_tree (freq_table);
     std::vector <code_t> codes_table = calc_codes_table (freq_tree, alphabet_size);
-    
 }
 
 

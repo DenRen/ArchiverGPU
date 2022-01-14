@@ -8,8 +8,22 @@ namespace archiver
 // struct
 
 class ArchiverCPU {
+    using data_t = int;
+
+    std::vector <int>
+    calc_freq_table_impl (const std::vector <data_t>& data,
+                          data_t min,
+                          data_t max);
+
 public:
-    void archive (const std::vector <int>& data);
+    void archive (const std::vector <data_t>& data,
+                  data_t min = 1,
+                  data_t max = 100);
+};
+
+struct code_t {
+    int len;        // In bits
+    uint32_t bits;
 };
 
 class AchiverGPU : public cppl::ClAccelerator {
@@ -43,10 +57,14 @@ public:
     AchiverGPU (cl::Device device);
     
     std::vector <int>
-    calc_freq_table (const std::vector <data_t>& data, data_t min = 1, data_t max = 100);
+    calc_freq_table (const std::vector <data_t>& data,
+                     data_t min = 1,
+                     data_t max = 100);
     
     void
-    archive (const std::vector <data_t>& data, data_t min = 1, data_t max = 100);
+    archive (const std::vector <data_t>& data,
+             data_t min = 1,
+             data_t max = 100);
 };
 
 } // namespace archiver

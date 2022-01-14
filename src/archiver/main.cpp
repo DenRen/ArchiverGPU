@@ -22,7 +22,7 @@ int main () {
         cl::Device device = deviceProvider.getDefaultDevice ();
         archiver::AchiverGPU archGpu {device};
 
-        archGpu.archive (data, 1, 15);
+        arch.archive (data, 1, 15);
     } catch (cl::Error& exc) {
         cppl::printError (exc);
     } catch (std::exception& exc) {
