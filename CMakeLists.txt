@@ -20,7 +20,7 @@ link_directories (${OpenCL_LIBRARY})
 #######################
 set (ARCH_DIR ${SRC_DIR}/archiver)
 file (GLOB ARCH_DIR_SOURCES ${ARCH_DIR}/*.cpp)
-add_executable (ArchiverGPU ${ARCH_DIR_SOURCES})
+add_executable (ArchiverGPU ${ARCH_DIR_SOURCES} ${SRC_DIR}/main.cpp)
 
 target_include_directories (ArchiverGPU PUBLIC "OpenCL-CLHPP/include")
 target_include_directories (ArchiverGPU PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
@@ -42,7 +42,10 @@ include_directories ("googletest/googletest/include" ${gtest_SOURCE_DIR})
 # #######################
 # # Unit Tests ArchiverGPU
 # #######################
-add_executable (run_tests "src/tests/simple_test.cpp")
+set (TEST_DIR src/tests)
+add_executable (run_tests ${ARCH_DIR_SOURCES} ${TEST_DIR}/test_archiver_cpu.cpp)
 
 #Link test executable against gtest and gtest_main
 target_link_libraries (run_tests gtest gtest_main ${OpenCL_LIBRARY})
+target_include_directories (run_tests PUBLIC "OpenCL-CLHPP/include")
+target_include_directories (run_tests PUBLIC ${SRC_DIR}/archiver)

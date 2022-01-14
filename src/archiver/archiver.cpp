@@ -5,7 +5,7 @@
 #include "archiver.hpp"
 #include "print_lib.hpp"
 
-#define PRINT(obj) std::cout << #obj ": " << obj << std::endl
+#define PRINT(obj) //std::cout << #obj ": " << obj << std::endl
 
 namespace archiver
 {

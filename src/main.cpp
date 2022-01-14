@@ -1,6 +1,6 @@
 #include <iostream>
-#include "archiver.hpp"
-#include "print_lib.hpp"
+#include "archiver/archiver.hpp"
+#include "archiver/print_lib.hpp"
 
 int
 get_bit (uint64_t value,
