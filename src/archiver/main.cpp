@@ -9,18 +9,34 @@ get_bit (const std::vector <uint64_t>& vec,
     return ((*(data + pos / 8)) & (1ull << (7 - pos % 8))) != 0;
 }
 
-void
-print_bits (const std::vector <uint64_t>& vec,
-            unsigned num_bits) {
-    for (unsigned i = 0; i < vec.size () * 64; ++i) {
-        std::cout << (int) get_bit (vec, i);
-        
-        if ((i + 1) % 64 == 0) {
-            std::cout << std::endl;
-        } else if ((i + 1) % 8 == 0) {
-            std::cout << " ";
+int
+get_bit (uint64_t value,
+         unsigned pos) {
+    return (value & (1ull << pos)) != 0;
+}
+
+// Print in real representation in member
+std::ostream&
+print_uint64 (uint64_t value, std::ostream& os = std::cout) {
+    for (int i = 0; i < 64; i += 8) {
+        for (int j = 0; j < 8; ++j) {
+            os << get_bit (value, (i + 8) - (j + 1));
+        }
+        if ((i + 8) == 32) {
+            os << "  ";
+        } else {
+            os << " ";
         }
     }
+
+    return os;
+} 
+
+void
+print_bits (const std::vector <uint64_t>& vec) {
+    for (const auto& value : vec) {
+        print_uint64 (value) << std::endl;
+    }    
 }
 
 /*
@@ -63,8 +79,8 @@ int main () {
         // archiver::AchiverGPU archGpu {device};
 
         auto [archived_data, num_bits, haff_tree] = arch.archive (data, 1, 15);
-        print_bits (archived_data, num_bits);
-        
+        print_bits (archived_data);
+
 
     } catch (cl::Error& exc) {
         cppl::printError (exc);

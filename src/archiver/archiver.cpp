@@ -34,7 +34,7 @@ fill_bits (const std::vector <bool>& stack) {
     std::uint32_t i = 0;
     do {
         res <<= 1;
-        res |= stack[i];
+        res |= stack[stack.size () - i - 1];
     } while (++i != stack.size ());
 
     return res;
@@ -224,30 +224,23 @@ std::tuple <std::vector <uint64_t>, unsigned>
 ArchiverCPU::archive_impl (const std::vector <data_t>& data,
                            const std::vector <code_t>& codes_table,
                            data_t min) {
-    const auto max_size_res = data.size () * sizeof (data_t) / sizeof (uint64_t) + 1;
-    std::vector <uint64_t> result (max_size_res);
-
-    uint64_t* begin = (uint64_t*) result.data ();
-    std::size_t pos = 0;
-
-    std::cout << std::endl;
-    PRINT (data);
-    for (data_t cur_data : data) {
-        code_t code = codes_table[cur_data - min];
-        PRINT (code);
-
-        uint64_t* cur_begin = (uint64_t*) (begin + (pos + 1) / 64);
+                               PRINT (data.size ());
+    const std::size_t max_size_coded = data.size () * sizeof (data_t) / sizeof (uint64_t) +
+                                                     (sizeof (data_t) % sizeof (uint64_t) != 0);
+    std::vector <uint64_t> coded (max_size_coded);
+    PRINT (max_size_coded);
+    unsigned pos = 0;
+    for (const data_t& value : data) {
+        code_t code = codes_table[value - min];
         uint64_t code_val = code.bits;
-        code_val <<= (64 - pos % 64 - code.len);
-        PRINT (code_val);
-
-        *cur_begin |= code_val;
-        PRINT (*cur_begin);
+        coded[pos / 64] |= code_val << (pos % 64);
         pos += code.len;
-        PRINT (pos);
     }
 
-    return {result, pos + 1};
+    coded.resize (pos / 64 + (pos % 64 != 0));
+    coded.shrink_to_fit ();
+
+    return {coded, pos};
 }
 
 std::tuple <std::vector <uint64_t>, unsigned , std::vector <node_t>>
@@ -269,7 +262,8 @@ ArchiverCPU::dearchive (const std::vector <uint64_t>& data,
                         unsigned num_bits,
                         const std::vector <node_t>& haff_tree,
                         data_t min) {
-    
+    // std::vector <data_t> data;
+
 
     return {};
 }
@@ -398,13 +392,19 @@ AchiverGPU::archive (const std::vector <data_t>& data,
 
 } // namespace archiver
 
+int
+get_bit (uint32_t value,
+         unsigned pos) {
+    return (value & (1ull << pos)) != 0;
+}
+
 namespace std
 {
 
 ostream&
 operator << (ostream& os, const archiver::code_t& code) {
     for (std::size_t j = 0; j < code.len; ++j) {
-        os << (int) ((code.bits & (1ull << (code.len - j - 1))) != 0);
+        os << get_bit (code.bits, code.len - 1 - j);
     }
 
     return os;
