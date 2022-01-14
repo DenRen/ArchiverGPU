@@ -33,7 +33,7 @@ void sort (std::vector <freq_t>& vec) {
 
 struct code_t {
     int len; // In bits
-    uint64_t bits;
+    uint32_t bits;
 };
 
 void fill_codes (const std::vector <node_t>& tree,
@@ -110,13 +110,13 @@ ArchiverCPU::archive (const std::vector <int>& data) {
     }
 }
 
-std::size_t fill_bits (const std::vector <bool>& stack) {
+std::uint32_t fill_bits (const std::vector <bool>& stack) {
     std::size_t res = 0;
     if (stack.size () > 8 * sizeof (res)) {
         throw std::invalid_argument ("stack.size () > 8 * sizeof (res)");
     }
 
-    std::size_t i = 0;
+    std::uint32_t i = 0;
     do {
         res <<= 1;
         res |= stack[i];
@@ -181,6 +181,8 @@ calc_size_per_work_group (int total_size,
     return {size_per_work_item * work_group_size, fill_size};
 }
 
+#define PRINT(obj) std::cout << #obj ": " << obj << std::endl
+
 std::vector <int>
 AchiverGPU::calc_freq_table_impl (cl::Buffer& data_buf,
                                   const std::vector <data_t>& data,
@@ -198,13 +200,14 @@ AchiverGPU::calc_freq_table_impl (cl::Buffer& data_buf,
     const auto max_work_group_size = device_.getInfo <CL_DEVICE_MAX_WORK_GROUP_SIZE> ();
     const auto work_group_size = std::min (num_alphabet_in_local_mem, max_work_group_size);
     const auto freq_tables_local_buf_size = alphabet_mem_size * work_group_size;
-    std::cout << work_group_size << std::endl;
+    PRINT (work_group_size);
     // Calculate size of part data per work group
     const auto num_cu = device_.getInfo <CL_DEVICE_MAX_COMPUTE_UNITS> ();
     const auto data_size = data.size ();
     const auto [data_size_wg, fill_size] = calc_size_per_work_group (data_size,
                                                                      work_group_size, num_cu);
-    std::cout << data_size_wg << " " << fill_size << std::endl;
+    PRINT (data_size_wg);
+    PRINT (fill_size);
 
     // Send data buffer and filling data if necessary
     std::vector feeling_data (fill_size, min);
@@ -265,8 +268,11 @@ AchiverGPU::calc_freq_table (const std::vector <data_t>& data,
     return calc_freq_table_impl (data_buf, data, min, max);
 } // AchiverGPU::calc_freq_table (const std::vector <data_t>& data, data_t min, data_t max)
 
+// TODO: optimize
 std::vector <node_t>
 calc_haff_tree (const std::vector <int>& freq_table) {
+    PRINT (freq_table);
+
     std::vector <freq_t> freq_vec;
     freq_vec.reserve (freq_table.size ());
 
@@ -286,14 +292,14 @@ calc_haff_tree (const std::vector <int>& freq_table) {
         tree.push_back (node);
 
         // Push position and frequency in freq_vec
-        freq_t freq_item {(int) tree.size (), freq_table[i]};
+        freq_t freq_item {(int) tree.size () - 1, freq_table[i]};
         freq_vec.push_back (freq_item);
     }
 
     // Build Haffman-tree
     while (freq_vec.size () > 1) {
         sort (freq_vec);
-        std::cout << "freq vec: " << freq_vec << std::endl;
+        PRINT (freq_vec);
 
         const auto end = freq_vec.end ();
         auto min1 = *(end - 1);
@@ -313,26 +319,77 @@ calc_haff_tree (const std::vector <int>& freq_table) {
         freq_t freq (tree.size () - 1, min1.freq + min2.freq);
         freq_vec.push_back (freq);
     }
-    std::cout << tree << std::endl;
+    PRINT (tree);
 
     return tree;
 }
 
-std::vector <unsigned>
-calc_codes_table (const std::vector <node_t>& freq_tree) {
-    return {};
+void fill_codes (const std::vector <node_t>& tree,
+                 std::size_t pos, bool is_right,
+                 std::vector <std::pair <int, code_t>>& codes,
+                 std::vector <bool>& stack) {
+    stack.push_back (is_right);
+
+    const node_t& node = tree[pos];
+    if (node.leaf) {
+
+        code_t code = {
+            .len = static_cast <int> (stack.size ()),
+            .bits = fill_bits (stack)
+        };
+        codes.emplace_back (node.value, code);
+    } else {
+        fill_codes (tree, node.left, false, codes, stack);
+        fill_codes (tree, node.right, true, codes, stack);
+    }
+
+    stack.pop_back ();
+}
+
+void fill_codes (const std::vector <node_t>& tree,
+                 std::vector <std::pair <int, code_t>>& codes) {
+    node_t root = tree[tree.size () - 1];
+    std::vector <bool> stack;
+
+    fill_codes (tree, root.left, false, codes, stack);
+    fill_codes (tree, root.right, true, codes, stack);
+}
+
+std::vector <code_t>
+calc_codes_table (const std::vector <node_t>& freq_tree,
+                  int alphabet_size) {
+    std::vector <std::pair <int, code_t>> codes;
+    fill_codes (freq_tree, codes);
+
+    PRINT (codes);
+    // Sort by value
+    std::sort (codes.begin (), codes.end (),
+        [] (const auto& lhs, const auto& rhs) {
+            return lhs.first < rhs.first;
+        });
+
+    PRINT (codes);
+
+    // Create full table
+    std::vector <code_t> code_table (alphabet_size, code_t {0});
+    for (const auto& [pos, code] : codes) {
+        code_table[pos] = code;
+    }
+
+    PRINT (code_table);
+    return code_table;
 }
 
 void
 AchiverGPU::archive (const std::vector <data_t>& data,
                      data_t min,
                      data_t max) {
-
+    const auto alphabet_size = max - min + 1;
     cl::Buffer data_buf;
     std::vector <int> freq_table = calc_freq_table_impl (data_buf, data, min, max);
     std::vector <node_t> freq_tree = calc_haff_tree (freq_table);
-    // std::vector <unsigned> codes_table = calc_codes_table (freq_tree);
-    // ...
+    std::vector <code_t> codes_table = calc_codes_table (freq_tree, alphabet_size);
+    
 }
 
 
@@ -342,13 +399,25 @@ namespace std
 {
 
 ostream&
-operator << (std::ostream& os, const archiver::freq_t& freq) {
+operator << (ostream& os, const archiver::freq_t& freq) {
     return os << "{" << freq.pos << "->" << freq.freq << "}";
 }
 
 ostream&
-operator << (std::ostream& os, const archiver::node_t& n) {
+operator << (ostream& os, const archiver::node_t& n) {
     return os << "{" << std::boolalpha << n.leaf << ", left: " << n.left
               << ", right: " << n.right << ", value: " << n.value << "}" << std::endl;
 }
+
+ostream&
+operator << (ostream& os, const archiver::code_t& code) {
+    auto copy_code = code;
+    for (std::size_t j = 0; j < copy_code.len; ++j) {
+        os << (1ull & copy_code.bits);
+        copy_code.bits >>= 1;
+    }
+
+    return os;
+}
+
 }
