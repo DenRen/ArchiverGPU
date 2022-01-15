@@ -44,14 +44,24 @@ public:
                data_t min);
 };
 
-struct ArchiveGPU_t {
+struct ArchiveGPU_data_t {
     unsigned num_parts_;
     std::vector <unsigned> lens_;
     std::vector <uint8_t> coded_data_;
 
-    ArchiveGPU_t (unsigned num_parts,
-                  std::vector <unsigned> lens,
-                  std::vector <uint8_t> coded_data);
+    ArchiveGPU_data_t (unsigned num_parts,
+                       std::vector <unsigned> lens,
+                       std::vector <uint8_t> coded_data);
+};
+
+struct ArchiveGPU {
+    ArchiveGPU_data_t data_;
+    std::vector <node_t> haff_tree_;
+    data_t min_value_;
+
+    ArchiveGPU (ArchiveGPU_data_t data,
+                std::vector <node_t> haff_tree,
+                data_t min_value);
 };
 
 class AchiverGPU : public cppl::ClAccelerator {
@@ -90,7 +100,7 @@ class AchiverGPU : public cppl::ClAccelerator {
                           data_t min,
                           data_t max);
 
-    std::tuple <std::vector <uint8_t>, unsigned>
+    ArchiveGPU_data_t
     archive_impl (cl::Buffer& data_buf,
                   const std::vector <data_t>& data,
                   data_t min_value,
@@ -104,7 +114,7 @@ public:
                      data_t min_value = 1,
                      data_t max_value = 100);
     
-    std::tuple <std::vector <uint8_t>, unsigned, std::vector <node_t>>
+    ArchiveGPU
     archive (const std::vector <data_t>& data,
              data_t min_value = 1,
              data_t max_value = 100);

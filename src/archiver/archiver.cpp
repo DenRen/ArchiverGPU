@@ -406,9 +406,9 @@ AchiverGPU::calc_freq_table (const std::vector <data_t>& data,
     return calc_freq_table_impl (data_buf, data, min, max);
 } // AchiverGPU::calc_freq_table (const std::vector <data_t>& data, data_t min, data_t max)
 
-ArchiveGPU_t::ArchiveGPU_t (unsigned num_parts,
-                            std::vector <unsigned> lens,
-                            std::vector <uint8_t> coded_data) :
+ArchiveGPU_data_t::ArchiveGPU_data_t (unsigned num_parts,
+                                      std::vector <unsigned> lens,
+                                      std::vector <uint8_t> coded_data) :
     num_parts_ (num_parts),
     lens_ (std::move (lens)),
     coded_data_ (std::move (coded_data))
@@ -419,7 +419,7 @@ bits2bytes (unsigned num_bits) {
     return num_bits / 8 + ((num_bits % 8) != 0);
 }
 
-std::tuple <std::vector <uint8_t>, unsigned>
+ArchiveGPU_data_t
 AchiverGPU::archive_impl (cl::Buffer& data_buf,
                           const std::vector <data_t>& data,
                           data_t min_value,
@@ -454,7 +454,6 @@ AchiverGPU::archive_impl (cl::Buffer& data_buf,
     PRINT (total_work_item_number);
     PRINT (work_group_size);
 
-    std::cout << "FFFFFFFFF" << std::endl;
     archive_ (args, data_buf, codes_table_buf, local_codes_table_buf,
                     lens_table_buf, local_buf,
                     local_mem_size_wi / sizeof (data_t), data.size (),
@@ -465,9 +464,6 @@ AchiverGPU::archive_impl (cl::Buffer& data_buf,
     PRINT (alphabet_size);
     PRINT (min_value);
 
-    std::cout << "UUUUUUUUU" << std::endl;
-
-    cmd_queue_.finish ();
     // Get results
     cl::copy (cmd_queue_, lens_table_buf, lens_table.begin (), lens_table.end ());
     PRINT (lens_table);
@@ -488,11 +484,23 @@ AchiverGPU::archive_impl (cl::Buffer& data_buf,
 
         std::cout << " ";
     }
+    
+    ArchiveGPU_data_t archive_data {static_cast <unsigned> (total_work_item_number),
+                                    std::move (lens_table),
+                                    std::move (encoded_data)};
 
-    return {};
+    return archive_data;
 }
 
-std::tuple <std::vector <uint8_t>, unsigned, std::vector <node_t>>
+ArchiveGPU::ArchiveGPU (ArchiveGPU_data_t data,
+                        std::vector <node_t> haff_tree,
+                        data_t min_value) :
+    data_ (std::move (data)),
+    haff_tree_ (std::move (haff_tree)),
+    min_value_ (min_value)
+{}
+
+ArchiveGPU
 AchiverGPU::archive (const std::vector <data_t>& data,
                      data_t min_value,
                      data_t max_value) {
@@ -502,9 +510,10 @@ AchiverGPU::archive (const std::vector <data_t>& data,
     std::vector <node_t> haff_tree = calc_haff_tree (freq_table);
     std::vector <code_t> codes_table = calc_codes_table (haff_tree, alphabet_size);
 
-    const auto [archived_data, num_bits] = archive_impl (data_buf, data, min_value, codes_table);
+    ArchiveGPU_data_t archive_data = archive_impl (data_buf, data, min_value, codes_table);
+    ArchiveGPU archive {std::move (archive_data), std::move (haff_tree), min_value};
 
-    return {archived_data, num_bits, haff_tree};
+    return archive;
 }
 
 } // namespace archiver
