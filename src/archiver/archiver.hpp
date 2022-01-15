@@ -46,22 +46,24 @@ public:
 
 struct ArchiveGPU_data_t {
     unsigned num_parts_;
-    std::vector <unsigned> lens_;
+    unsigned size_part_;                // In data_t input data
+    std::vector <unsigned> lens_;       // In bits encoded data
     std::vector <uint8_t> coded_data_;
 
     ArchiveGPU_data_t (unsigned num_parts,
+                       unsigned size_part,
                        std::vector <unsigned> lens,
                        std::vector <uint8_t> coded_data);
 };
 
-struct ArchiveGPU {
+struct ArchiveGPU_t {
     ArchiveGPU_data_t data_;
     std::vector <node_t> haff_tree_;
     data_t min_value_;
 
-    ArchiveGPU (ArchiveGPU_data_t data,
-                std::vector <node_t> haff_tree,
-                data_t min_value);
+    ArchiveGPU_t (ArchiveGPU_data_t data,
+                  std::vector <node_t> haff_tree,
+                  data_t min_value);
 };
 
 class AchiverGPU : public cppl::ClAccelerator {
@@ -93,6 +95,16 @@ class AchiverGPU : public cppl::ClAccelerator {
                        unsigned,            // unsigned         codes_buf_size
                        data_t>              // data_t           min_value
         archive_;
+    
+    cl::KernelFunctor <cl::Buffer,          // uchar*           archived_data_g
+                       cl::Buffer,          // struct node_t*   haff_tree_g
+                       cl::LocalSpaceArg,   // struct node_t*   haff_tree_l
+                       cl::Buffer,          // data_t*          data_g
+                       cl::Buffer,          // uint*            num_bits_g
+                       data_t,              // data_t           min_value
+                       unsigned,            // unsigned         data_size
+                       unsigned>            // unsigned         haff_tree_size
+        dearchive_;
 
     std::vector <int>
     calc_freq_table_impl (cl::Buffer& data_buf,
@@ -114,10 +126,13 @@ public:
                      data_t min_value = 1,
                      data_t max_value = 100);
     
-    ArchiveGPU
+    ArchiveGPU_t
     archive (const std::vector <data_t>& data,
              data_t min_value = 1,
              data_t max_value = 100);
+
+    std::vector <data_t>
+    dearchive (const ArchiveGPU_t& archive);
 };
 
 } // namespace archiver

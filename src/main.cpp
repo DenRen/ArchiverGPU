@@ -80,7 +80,9 @@ int main () {
 
         const int min = 1, max = 15;
 
-        archiver::ArchiveGPU archive = arch.archive (data, min, max);
+        archiver::ArchiveGPU_t archive = arch.archive (data, min, max);
+        const auto dearchive_data = arch.dearchive (archive);
+        std::cout << std::endl << dearchive_data << std::endl;
         // print_bits (archived_data);
 
         // std::vector <int> data_decoded = arch.dearchive (archived_data, num_bits, haff_tree, min);

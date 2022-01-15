@@ -302,7 +302,8 @@ AchiverGPU::AchiverGPU (cl::Device device) :
     cppl::ClAccelerator (device, "kernels/archiver.cl"),
     calc_freq_tables_ (program_, "calc_freq_tables"),
     accumulate_freq_table_ (program_, "accumulate_freq_table"),
-    archive_ (program_, "archive")
+    archive_ (program_, "archive"),
+    dearchive_ (program_, "dearchive")
 {}
 
 static std::pair <int, int>
@@ -407,9 +408,11 @@ AchiverGPU::calc_freq_table (const std::vector <data_t>& data,
 } // AchiverGPU::calc_freq_table (const std::vector <data_t>& data, data_t min, data_t max)
 
 ArchiveGPU_data_t::ArchiveGPU_data_t (unsigned num_parts,
+                                      unsigned size_part,
                                       std::vector <unsigned> lens,
                                       std::vector <uint8_t> coded_data) :
     num_parts_ (num_parts),
+    size_part_ (size_part),
     lens_ (std::move (lens)),
     coded_data_ (std::move (coded_data))
 {}
@@ -435,6 +438,7 @@ AchiverGPU::archive_impl (cl::Buffer& data_buf,
     const auto data_mem_size = sizeof (data_t) * data.size ();
     const auto total_work_item_number = data_mem_size / local_mem_size_wi +
                                       ((data_mem_size % local_mem_size_wi) != 0);
+    const auto local_size_wi = local_mem_size_wi / sizeof (data_t);
 
     // Create lens table buffer
     std::vector <unsigned> lens_table (total_work_item_number);
@@ -453,10 +457,10 @@ AchiverGPU::archive_impl (cl::Buffer& data_buf,
 
     PRINT (total_work_item_number);
     PRINT (work_group_size);
-
+    
     archive_ (args, data_buf, codes_table_buf, local_codes_table_buf,
                     lens_table_buf, local_buf,
-                    local_mem_size_wi / sizeof (data_t), data.size (),
+                    local_size_wi, data.size (),
                     alphabet_size, min_value);
 
     PRINT (local_mem_size_wi / sizeof (data_t));
@@ -486,21 +490,22 @@ AchiverGPU::archive_impl (cl::Buffer& data_buf,
     }
     
     ArchiveGPU_data_t archive_data {static_cast <unsigned> (total_work_item_number),
+                                    static_cast <unsigned> (local_size_wi),
                                     std::move (lens_table),
                                     std::move (encoded_data)};
 
     return archive_data;
 }
 
-ArchiveGPU::ArchiveGPU (ArchiveGPU_data_t data,
-                        std::vector <node_t> haff_tree,
-                        data_t min_value) :
+ArchiveGPU_t::ArchiveGPU_t (ArchiveGPU_data_t data,
+                            std::vector <node_t> haff_tree,
+                            data_t min_value) :
     data_ (std::move (data)),
     haff_tree_ (std::move (haff_tree)),
     min_value_ (min_value)
 {}
 
-ArchiveGPU
+ArchiveGPU_t
 AchiverGPU::archive (const std::vector <data_t>& data,
                      data_t min_value,
                      data_t max_value) {
@@ -511,9 +516,45 @@ AchiverGPU::archive (const std::vector <data_t>& data,
     std::vector <code_t> codes_table = calc_codes_table (haff_tree, alphabet_size);
 
     ArchiveGPU_data_t archive_data = archive_impl (data_buf, data, min_value, codes_table);
-    ArchiveGPU archive {std::move (archive_data), std::move (haff_tree), min_value};
+    ArchiveGPU_t archive {std::move (archive_data), std::move (haff_tree), min_value};
 
     return archive;
+}
+
+std::vector <data_t>
+AchiverGPU::dearchive (const ArchiveGPU_t& archive) {
+    const ArchiveGPU_data_t& archive_data = archive.data_;
+
+    // Create buffer of coded data
+    cl::Buffer archiver_data_buf = sendBuffer (archive_data.coded_data_);
+
+    // Create buffer for decoded data
+    const auto num_parts = archive_data.num_parts_;
+    const auto data_size = archive_data.size_part_; // StF
+    std::vector <data_t> data (data_size * num_parts);
+    const auto data_mem_size = sizeof (data[0]) * data.size ();
+    cl::Buffer data_buf {context_, CL_MEM_READ_WRITE, data_mem_size};
+
+    cl::Buffer num_bits_buf = sendBuffer (archive_data.lens_);
+    cl::Buffer haff_tree_buf = sendBuffer (archive.haff_tree_);
+
+    const auto haff_tree_size = archive.haff_tree_.size ();
+    const auto haff_tree_mem_size = sizeof (archive.haff_tree_[0]) * haff_tree_size;
+    cl::LocalSpaceArg haff_tree_local_buf { .size_ = haff_tree_mem_size };
+
+    // Start decode
+    cl::NDRange global (num_parts);
+    cl::EnqueueArgs args {cmd_queue_, global};
+
+    dearchive_ (args, archiver_data_buf, haff_tree_buf, haff_tree_local_buf,
+                      data_buf, num_bits_buf, archive.min_value_,
+                      data_size, haff_tree_size);
+
+    const auto delta_size = data_size - archive_data.lens_[num_parts - 1];
+    data.resize (data.size () - delta_size);
+    data.shrink_to_fit ();
+
+    return data;
 }
 
 } // namespace archiver

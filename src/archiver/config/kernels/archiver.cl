@@ -1,10 +1,12 @@
+typedef int data_t;
+
 __kernel void
-calc_freq_tables (__global int* data_g,
+calc_freq_tables (__global data_t* data_g,
                   __global int* freq_table_g,
                   __local int* freq_table_l,
                   unsigned data_size,
                   unsigned freq_table_size,
-                  unsigned begin_pattern)
+                  data_t begin_pattern)
 {
     unsigned id_g = get_global_id (0);
     unsigned id_l = get_local_id (0);
@@ -73,7 +75,7 @@ bits2bytes (uint num_bits) {
 }
 
 __kernel void
-archive (__global int* data_g,
+archive (__global data_t* data_g,
          __global struct code_t* codes_buf_g,
          __local  struct code_t* codes_buf_l,
          __global uint* lens_table_g,
@@ -81,7 +83,7 @@ archive (__global int* data_g,
          uint data_size,
          uint max_data_size,
          uint codes_buf_size,
-         int min_value)
+         data_t min_value)
 {
     uint id_l = get_local_id (0);
     uint id_g = get_global_id (0);
@@ -110,10 +112,6 @@ archive (__global int* data_g,
     {
         int value = data_g[data_pos];
         struct code_t code = codes_buf_l[value - min_value];
-        // uint code_val = code.bits;
-
-        // ulong* cur = (ulong*) (((uchar*) buf_l) + pos / 8);
-        // *cur |= code_val << (pos % 8);
 
         buf_l[pos / 32    ] |= code.bits << (pos % 32);
         buf_l[pos / 32 + 1]  = code.bits >> (32 - pos % 32);
@@ -135,5 +133,56 @@ archive (__global int* data_g,
     uint size_res = bits2bytes (pos);
     for (uint i = 0; i < size_res; ++i) {
         res_data_g[i] = res_data_l[i];
+    }
+}
+
+struct node_t {
+    bool leaf;
+    int left, right;
+    int value;
+};
+
+__kernel void
+dearchive (__global uchar* archived_data_g,
+           __global struct node_t* haff_tree_g,
+           __local  struct node_t* haff_tree_l,
+           __global data_t* data_g,
+           __global uint* num_bits_g,
+           data_t min_value,
+           uint data_size,
+           uint haff_tree_size)
+{
+    uint id_l = get_local_id (0);
+    uint id_g = get_global_id (0);
+
+    // Read haff tree to local memory
+    if (id_l == 0) {
+        for (int i = 0; i < haff_tree_size; ++i) {
+            haff_tree_l[i] = haff_tree_g[i];
+        }
+    }
+    barrier (CLK_LOCAL_MEM_FENCE);
+
+    archived_data_g += data_size * id_g;
+    const uint num_bits = num_bits_g[id_g];
+
+    const uint root = haff_tree_size;
+    uint tree_pos = root;
+    for (uint pos = 0; pos < num_bits; pos += 8) {
+        uchar bits = archived_data_g[pos / 8];
+
+        uint pos_end = min (pos + 8, num_bits);
+        for (int i = pos; i < pos_end; ++i) {
+            uint bit = (bits & (1u << (i - pos))) != 0;
+
+            struct node_t node = haff_tree_l[tree_pos];
+            if (node.leaf) {
+                tree_pos = root;
+                *archived_data_g = node.value + min_value;
+                ++archived_data_g;
+            } else {
+                tree_pos = bit ? node.right : node.left;
+            }
+        }
     }
 }
