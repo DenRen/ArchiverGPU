@@ -43,7 +43,7 @@ include_directories ("googletest/googletest/include" ${gtest_SOURCE_DIR})
 # # Unit Tests ArchiverGPU
 # #######################
 set (TEST_DIR src/tests)
-add_executable (run_tests ${ARCH_DIR_SOURCES} ${TEST_DIR}/test_archiver_cpu.cpp)
+add_executable (run_tests ${ARCH_DIR_SOURCES} ${TEST_DIR}/test_archiver.cpp)
 
 #Link test executable against gtest and gtest_main
 target_link_libraries (run_tests gtest gtest_main ${OpenCL_LIBRARY})

@@ -5,7 +5,7 @@
 #include "archiver.hpp"
 #include "print_lib.hpp"
 
-#define PRINT(obj) std::cout << #obj ": " << obj << std::endl
+#define PRINT(obj) //std::cout << #obj ": " << obj << std::endl
 
 namespace archiver
 {
@@ -467,7 +467,7 @@ AchiverGPU::archive_impl (cl::Buffer& data_buf,
     PRINT (data.size ());
     PRINT (alphabet_size);
     PRINT (min_value);
-
+    
     // Get results
     cl::copy (cmd_queue_, lens_table_buf, lens_table.begin (), lens_table.end ());
     PRINT (lens_table);
@@ -480,14 +480,14 @@ AchiverGPU::archive_impl (cl::Buffer& data_buf,
 
     std::vector <uint8_t> encoded_data (size_encoded_data);
     cl::copy (cmd_queue_, data_buf, encoded_data.begin (), encoded_data.end ());
-
+/*
     for (uint8_t d : encoded_data) {
         for (int i = 0; i < 8; ++i) {
             std::cout << (int)((d & (1 << (7 - i))) != 0);
         }
 
         std::cout << " ";
-    }
+    }*/
     
     ArchiveGPU_data_t archive_data {static_cast <unsigned> (total_work_item_number),
                                     static_cast <unsigned> (local_size_wi),
