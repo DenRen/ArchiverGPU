@@ -141,13 +141,17 @@ struct node_t {
     int left, right;
     int value;
 };
+struct pos_len_t {
+    uint pos;
+    uint num_bits;
+};
 
 __kernel void
 dearchive (__global uchar* archived_data_g,
            __global struct node_t* haff_tree_g,
            __local  struct node_t* haff_tree_l,
            __global data_t* data_g,
-           __global uint* num_bits_g,
+           __global struct pos_len_t* pos_len_g,
            data_t min_value,
            uint data_size,
            uint haff_tree_size)
@@ -163,25 +167,26 @@ dearchive (__global uchar* archived_data_g,
     }
     barrier (CLK_LOCAL_MEM_FENCE);
 
-    archived_data_g += data_size * id_g;
-    const uint num_bits = num_bits_g[id_g];
+    struct pos_len_t pos_len = pos_len_g[id_g];
+    archived_data_g += pos_len.pos;
+    const uint num_bits = pos_len.num_bits;
+    data_g += data_size * id_g;
 
-    const uint root = haff_tree_size;
-    uint tree_pos = root;
+    const uint root = haff_tree_size - 1;
+    struct node_t node = haff_tree_l[root];
+    
     for (uint pos = 0; pos < num_bits; pos += 8) {
         uchar bits = archived_data_g[pos / 8];
 
         uint pos_end = min (pos + 8, num_bits);
         for (int i = pos; i < pos_end; ++i) {
             uint bit = (bits & (1u << (i - pos))) != 0;
+            uint tree_pos = bit ? node.right : node.left;
 
-            struct node_t node = haff_tree_l[tree_pos];
+            node = haff_tree_l[tree_pos];
             if (node.leaf) {
-                tree_pos = root;
-                *archived_data_g = node.value + min_value;
-                ++archived_data_g;
-            } else {
-                tree_pos = bit ? node.right : node.left;
+                *data_g++ = node.value + min_value;
+                node = haff_tree_l[root];
             }
         }
     }

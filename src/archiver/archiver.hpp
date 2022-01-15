@@ -46,14 +46,17 @@ public:
 
 struct ArchiveGPU_data_t {
     unsigned num_parts_;
-    unsigned size_part_;                // In data_t input data
-    std::vector <unsigned> lens_;       // In bits encoded data
-    std::vector <uint8_t> coded_data_;
+    unsigned size_part_;                    // In data_t input data
+    std::vector <unsigned> lens_;           // In bits encoded data
+    std::vector <uint8_t> archived_data_;
 
     ArchiveGPU_data_t (unsigned num_parts,
                        unsigned size_part,
                        std::vector <unsigned> lens,
                        std::vector <uint8_t> coded_data);
+
+    ArchiveGPU_data_t (ArchiveGPU_data_t&&) = default;
+    ArchiveGPU_data_t& operator = (ArchiveGPU_data_t&&) = default;
 };
 
 struct ArchiveGPU_t {
@@ -96,14 +99,14 @@ class AchiverGPU : public cppl::ClAccelerator {
                        data_t>              // data_t           min_value
         archive_;
     
-    cl::KernelFunctor <cl::Buffer,          // uchar*           archived_data_g
-                       cl::Buffer,          // struct node_t*   haff_tree_g
-                       cl::LocalSpaceArg,   // struct node_t*   haff_tree_l
-                       cl::Buffer,          // data_t*          data_g
-                       cl::Buffer,          // uint*            num_bits_g
-                       data_t,              // data_t           min_value
-                       unsigned,            // unsigned         data_size
-                       unsigned>            // unsigned         haff_tree_size
+    cl::KernelFunctor <cl::Buffer,          // uchar*            archived_data_g
+                       cl::Buffer,          // struct node_t*    haff_tree_g
+                       cl::LocalSpaceArg,   // struct node_t*    haff_tree_l
+                       cl::Buffer,          // data_t*           data_g
+                       cl::Buffer,          // struct pos_len_t* pos_len_g
+                       data_t,              // data_t            min_value
+                       unsigned,            // unsigned          data_size
+                       unsigned>            // unsigned          haff_tree_size
         dearchive_;
 
     std::vector <int>

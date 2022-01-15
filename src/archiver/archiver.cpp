@@ -414,7 +414,7 @@ ArchiveGPU_data_t::ArchiveGPU_data_t (unsigned num_parts,
     num_parts_ (num_parts),
     size_part_ (size_part),
     lens_ (std::move (lens)),
-    coded_data_ (std::move (coded_data))
+    archived_data_ (std::move (coded_data))
 {}
 
 static unsigned
@@ -521,34 +521,69 @@ AchiverGPU::archive (const std::vector <data_t>& data,
     return archive;
 }
 
+struct pos_len_t {
+    unsigned pos;
+    unsigned num_bits;
+
+    pos_len_t (unsigned pos,
+               unsigned num_bits) :
+        pos (pos),
+        num_bits (num_bits)
+    {}
+};
+
+std::vector <pos_len_t> 
+num_bits2pos_len (const std::vector <unsigned>& num_bits) {
+    std::vector <pos_len_t> pos_len;
+    pos_len.reserve (num_bits.size ());
+
+    unsigned pos = 0;
+    for (std::size_t i = 0; i < num_bits.size (); ++i) {
+        unsigned len = num_bits[i];
+
+        pos_len.emplace_back (pos, len);
+        pos += bits2bytes (len);
+    }
+
+    return pos_len;
+}
+
 std::vector <data_t>
 AchiverGPU::dearchive (const ArchiveGPU_t& archive) {
     const ArchiveGPU_data_t& archive_data = archive.data_;
 
     // Create buffer of coded data
-    cl::Buffer archiver_data_buf = sendBuffer (archive_data.coded_data_);
+    cl::Buffer archiver_data_buf = sendBuffer (archive_data.archived_data_);
+
+    std::cout << std::endl;
+    PRINT (archive_data.num_parts_);
 
     // Create buffer for decoded data
     const auto num_parts = archive_data.num_parts_;
-    const auto data_size = archive_data.size_part_; // StF
+    const auto data_size = archive_data.size_part_; // Per work item
+
     std::vector <data_t> data (data_size * num_parts);
     const auto data_mem_size = sizeof (data[0]) * data.size ();
     cl::Buffer data_buf {context_, CL_MEM_READ_WRITE, data_mem_size};
 
-    cl::Buffer num_bits_buf = sendBuffer (archive_data.lens_);
     cl::Buffer haff_tree_buf = sendBuffer (archive.haff_tree_);
 
     const auto haff_tree_size = archive.haff_tree_.size ();
     const auto haff_tree_mem_size = sizeof (archive.haff_tree_[0]) * haff_tree_size;
     cl::LocalSpaceArg haff_tree_local_buf { .size_ = haff_tree_mem_size };
 
+    std::vector <pos_len_t> pos_len = num_bits2pos_len (archive_data.lens_);
+    cl::Buffer pos_len_buf = sendBuffer (pos_len);
+
     // Start decode
     cl::NDRange global (num_parts);
     cl::EnqueueArgs args {cmd_queue_, global};
 
     dearchive_ (args, archiver_data_buf, haff_tree_buf, haff_tree_local_buf,
-                      data_buf, num_bits_buf, archive.min_value_,
+                      data_buf, pos_len_buf, archive.min_value_,
                       data_size, haff_tree_size);
+
+    cl::copy (cmd_queue_, data_buf, data.begin (), data.end ());
 
     const auto delta_size = data_size - archive_data.lens_[num_parts - 1];
     data.resize (data.size () - delta_size);
