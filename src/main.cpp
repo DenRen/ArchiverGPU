@@ -43,16 +43,25 @@ print_bits (const std::vector <uint64_t>& vec) {
 */
 
 int main () {
-    archiver::ArchiverCPU arch;
+    cppl::DeviceProvider deviceProvider;
+    cl::Device device = deviceProvider.getDefaultDevice ();
+    archiver::AchiverGPU arch {device};
+    // archiver::ArchiverCPU arch;
 
-    std::vector <int> data = {
-        1, 1, 2, 4, 4, 5, 5, 6, 6, 2,
-        1, 1, 2, 4, 4, 5, 5, 6, 6, 2,
-        1, 1, 2, 4, 4, 5, 5, 6, 6, 2,
-        1, 1, 2, 4, 4, 5, 5, 6, 6, 2,
-        1, 1, 2, 4, 4, 5, 5, 6, 6, 2,
-        1, 1, 2, 4, 4, 5, 5, 6, 6, 2,
-    };
+    const unsigned size = 1000;
+    std::vector <int> data (size / 2, 5);
+    for (unsigned i = 0; i < size / 2; ++i) {
+        data.push_back (2);
+    }
+
+    // {
+    //     1, 1, 2, 4, 4, 5, 5, 6, 6, 2,
+    //     1, 1, 2, 4, 4, 5, 5, 6, 6, 2,
+    //     1, 1, 2, 4, 4, 5, 5, 6, 6, 2,
+    //     1, 1, 2, 4, 4, 5, 5, 6, 6, 2,
+    //     1, 1, 2, 4, 4, 5, 5, 6, 6, 2,
+    //     1, 1, 2, 4, 4, 5, 5, 6, 6, 2,
+    // };
     // 0001 1111
 
     // std::vector <int> data (122*5*200 + 170, 2);
@@ -68,24 +77,21 @@ int main () {
     // }
 
     try {
-        // cppl::DeviceProvider deviceProvider;
-        // cl::Device device = deviceProvider.getDefaultDevice ();
-        // archiver::AchiverGPU archGpu {device};
 
         const int min = 1, max = 15;
 
         auto [archived_data, num_bits, haff_tree] = arch.archive (data, min, max);
-        print_bits (archived_data);
+        // print_bits (archived_data);
 
-        std::vector <int> data_decoded = arch.dearchive (archived_data, num_bits, haff_tree, min);
+        // std::vector <int> data_decoded = arch.dearchive (archived_data, num_bits, haff_tree, min);
         
-        for (int i = 0; i < data.size (); i += data.size () / 6) {
-            for (int j = i; j < i + data.size () / 6; ++j) {
-                std::cout << data_decoded[j] << " ";
-            }
+        // for (int i = 0; i < data.size (); i += data.size () / 6) {
+        //     for (int j = i; j < i + data.size () / 6; ++j) {
+        //         std::cout << data_decoded[j] << " ";
+        //     }
 
-            std::cout << std::endl;
-        }
+        //     std::cout << std::endl;
+        // }
         // std::cout << std::endl << "Result: " << (data_decoded) << std::endl;
 
     } catch (cl::Error& exc) {

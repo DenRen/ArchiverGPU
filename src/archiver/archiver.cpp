@@ -5,7 +5,7 @@
 #include "archiver.hpp"
 #include "print_lib.hpp"
 
-#define PRINT(obj) //std::cout << #obj ": " << obj << std::endl
+#define PRINT(obj) std::cout << #obj ": " << obj << std::endl
 
 namespace archiver
 {
@@ -220,32 +220,31 @@ ArchiverCPU::calc_freq_table_impl (const std::vector <data_t>& data,
     return freq_table;
 }
 
-std::tuple <std::vector <uint64_t>, unsigned>
+std::tuple <std::vector <uint8_t>, unsigned>
 ArchiverCPU::archive_impl (const std::vector <data_t>& data,
                            const std::vector <code_t>& codes_table,
                            data_t min) {
-    const std::size_t max_size_coded = data.size () * sizeof (data_t) / sizeof (uint64_t) +
-                                                     (sizeof (data_t) % sizeof (uint64_t) != 0);
-    std::vector <uint64_t> coded (max_size_coded);
-    PRINT (max_size_coded);
+    const std::size_t max_size_coded = data.size ();
+    std::vector <uint8_t> coded (sizeof (data_t) * max_size_coded);
+
     unsigned pos = 0;
     for (const data_t& value : data) {
         code_t code = codes_table[value - min];
         uint64_t code_val = code.bits;
 
-        uint64_t* cur = (uint64_t*) (((uint8_t*) coded.data ()) + pos / 8);
+        uint64_t* cur = (uint64_t*) (coded.data () + pos / 8);
         *cur |= code_val << (pos % 8);
-        
+
         pos += code.len;
     }
 
-    coded.resize (pos / 64 + (pos % 64 != 0));
+    coded.resize (pos / 8 + (pos % 8 != 0));
     coded.shrink_to_fit ();
 
     return {coded, pos};
 }
 
-std::tuple <std::vector <uint64_t>, unsigned , std::vector <node_t>>
+std::tuple <std::vector <uint8_t>, unsigned , std::vector <node_t>>
 ArchiverCPU::archive (const std::vector <data_t>& data,
                       data_t min,
                       data_t max) {
@@ -260,13 +259,13 @@ ArchiverCPU::archive (const std::vector <data_t>& data,
 }
 
 int
-get_bit (const std::vector <uint64_t>& vec,
+get_bit (const std::vector <uint8_t>& vec,
          unsigned pos) {
-    return (vec[pos / 64] & (1ull << (pos % 64))) != 0;
+    return (vec[pos / 8] & (1ull << (pos % 8))) != 0;
 }
 
 std::vector <data_t>
-ArchiverCPU::dearchive (const std::vector <uint64_t>& archived_data,
+ArchiverCPU::dearchive (const std::vector <uint8_t>& archived_data,
                         unsigned num_bits,
                         const std::vector <node_t>& haff_tree,
                         data_t min) {
@@ -283,7 +282,7 @@ ArchiverCPU::dearchive (const std::vector <uint64_t>& archived_data,
         auto node_pos = root;
         while (!haff_tree[node_pos].leaf) {
             auto& node = haff_tree[node_pos];
-            
+
             node_pos = next_bit () ? node.right : node.left;
             if (node_pos == -1) {
                 throw std::runtime_error ("Failed to encode data");
@@ -302,7 +301,8 @@ ArchiverCPU::dearchive (const std::vector <uint64_t>& archived_data,
 AchiverGPU::AchiverGPU (cl::Device device) :
     cppl::ClAccelerator (device, "kernels/archiver.cl"),
     calc_freq_tables_ (program_, "calc_freq_tables"),
-    accumulate_freq_table_ (program_, "accumulate_freq_table")
+    accumulate_freq_table_ (program_, "accumulate_freq_table"),
+    archive_ (program_, "archive")
 {}
 
 static std::pair <int, int>
@@ -351,11 +351,11 @@ AchiverGPU::calc_freq_table_impl (cl::Buffer& data_buf,
     std::vector feeling_data (fill_size, min);
     if (fill_size == 0) {
         // Send data to the device
-        data_buf = sendBuffer (data, CL_MEM_READ_ONLY, CL_FALSE);
+        data_buf = sendBuffer (data, CL_MEM_READ_WRITE, CL_FALSE);
     } else {
         const auto data_mem_size = data_size * sizeof (data[0]);
         const auto fill_mem_size = fill_size * sizeof (feeling_data[0]);
-        data_buf = cl::Buffer (context_, CL_MEM_READ_ONLY, data_mem_size + fill_mem_size);
+        data_buf = cl::Buffer (context_, CL_MEM_READ_WRITE, data_mem_size + fill_mem_size);
 
         // Send data
         cmd_queue_.enqueueWriteBuffer (data_buf, CL_FALSE,
@@ -406,15 +406,105 @@ AchiverGPU::calc_freq_table (const std::vector <data_t>& data,
     return calc_freq_table_impl (data_buf, data, min, max);
 } // AchiverGPU::calc_freq_table (const std::vector <data_t>& data, data_t min, data_t max)
 
-void
+ArchiveGPU_t::ArchiveGPU_t (unsigned num_parts,
+                            std::vector <unsigned> lens,
+                            std::vector <uint8_t> coded_data) :
+    num_parts_ (num_parts),
+    lens_ (std::move (lens)),
+    coded_data_ (std::move (coded_data))
+{}
+
+static unsigned
+bits2bytes (unsigned num_bits) {
+    return num_bits / 8 + ((num_bits % 8) != 0);
+}
+
+std::tuple <std::vector <uint8_t>, unsigned>
+AchiverGPU::archive_impl (cl::Buffer& data_buf,
+                          const std::vector <data_t>& data,
+                          data_t min_value,
+                          const std::vector <code_t>& codes_table) {
+    // Calc total work group size
+    const auto local_mem_size = device_.getInfo <CL_DEVICE_LOCAL_MEM_SIZE> ();
+    const auto alphabet_size = codes_table.size ();
+    const auto alphabet_mem_size = sizeof (code_t) * alphabet_size;
+
+    const auto local_mem_size_wi = 1024 / 4;
+    const auto work_group_size = (local_mem_size - alphabet_mem_size) / local_mem_size_wi;
+
+    const auto data_mem_size = sizeof (data_t) * data.size ();
+    const auto total_work_item_number = data_mem_size / local_mem_size_wi +
+                                      ((data_mem_size % local_mem_size_wi) != 0);
+
+    // Create lens table buffer
+    std::vector <unsigned> lens_table (total_work_item_number);
+    const auto lens_table_mem_size = sizeof (lens_table[0]) * lens_table.size ();
+    cl::Buffer lens_table_buf {context_, CL_MEM_READ_WRITE, lens_table_mem_size};
+    
+    // Send codes table to device
+    cl::Buffer codes_table_buf = sendBuffer (codes_table);
+    cl::LocalSpaceArg local_codes_table_buf = { .size_ = alphabet_mem_size };
+
+    // Prepare args and send archive kernel
+    cl::LocalSpaceArg local_buf { .size_ = local_mem_size_wi * work_group_size };
+    cl::NDRange global {total_work_item_number};
+    // cl::NDRange local {total_work_item_number};
+    cl::EnqueueArgs args {cmd_queue_, global};
+
+    PRINT (total_work_item_number);
+    PRINT (work_group_size);
+
+    std::cout << "FFFFFFFFF" << std::endl;
+    archive_ (args, data_buf, codes_table_buf, local_codes_table_buf,
+                    lens_table_buf, local_buf,
+                    local_mem_size_wi / sizeof (data_t), data.size (),
+                    alphabet_size, min_value);
+
+    PRINT (local_mem_size_wi / sizeof (data_t));
+    PRINT (data.size ());
+    PRINT (alphabet_size);
+    PRINT (min_value);
+
+    std::cout << "UUUUUUUUU" << std::endl;
+
+    cmd_queue_.finish ();
+    // Get results
+    cl::copy (cmd_queue_, lens_table_buf, lens_table.begin (), lens_table.end ());
+    PRINT (lens_table);
+    unsigned size_encoded_data = 0;
+    for (const auto& len : lens_table) {
+        size_encoded_data += bits2bytes (len);
+    }
+
+    PRINT (size_encoded_data);
+
+    std::vector <uint8_t> encoded_data (size_encoded_data);
+    cl::copy (cmd_queue_, data_buf, encoded_data.begin (), encoded_data.end ());
+
+    for (uint8_t d : encoded_data) {
+        for (int i = 0; i < 8; ++i) {
+            std::cout << (int)((d & (1 << (7 - i))) != 0);
+        }
+
+        std::cout << " ";
+    }
+
+    return {};
+}
+
+std::tuple <std::vector <uint8_t>, unsigned, std::vector <node_t>>
 AchiverGPU::archive (const std::vector <data_t>& data,
-                     data_t min,
-                     data_t max) {
-    const auto alphabet_size = max - min + 1;
+                     data_t min_value,
+                     data_t max_value) {
+    const auto alphabet_size = max_value - min_value + 1;
     cl::Buffer data_buf;
-    std::vector <int> freq_table = calc_freq_table_impl (data_buf, data, min, max);
-    std::vector <node_t> freq_tree = calc_haff_tree (freq_table);
-    std::vector <code_t> codes_table = calc_codes_table (freq_tree, alphabet_size);
+    std::vector <int> freq_table = calc_freq_table_impl (data_buf, data, min_value, max_value);
+    std::vector <node_t> haff_tree = calc_haff_tree (freq_table);
+    std::vector <code_t> codes_table = calc_codes_table (haff_tree, alphabet_size);
+
+    const auto [archived_data, num_bits] = archive_impl (data_buf, data, min_value, codes_table);
+
+    return {archived_data, num_bits, haff_tree};
 }
 
 } // namespace archiver

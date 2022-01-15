@@ -276,7 +276,7 @@ switch(error){
 } // getErrorString (cl_int error)
 
 void printError (cl::Error& error) {
-    std::cout << error.what () << ", error code: " << error.err ()
+    std::cerr << error.what () << ", error code: " << error.err ()
               << " => " << getErrorString (error.err ()) << std::endl;
 }
 
